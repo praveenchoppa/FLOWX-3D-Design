@@ -46,6 +46,7 @@ export default function SimulationPanel({
   // Shadow heatmap (Step 4B-1)
   shadowResult = null,
   shadowRunning = false,
+  shadowProgress = 0,
   runShadowAnalysis = () => {},
   canRunShadow = false,
   // Exposure score (Step 4C)
@@ -129,7 +130,21 @@ export default function SimulationPanel({
           }`}
         >
           {shadowRunning ? (
-            <><FiLoader size={14} className="animate-spin" /><span>Analyzing…</span></>
+            <div className="flex flex-col gap-2 w-full">
+              <div className="flex items-center justify-center gap-2 text-[12px] font-medium text-white/90">
+                <FiLoader size={14} className="animate-spin" />
+                <span>
+                  Analyzing Shadows…
+                  {shadowProgress > 0 ? ` ${shadowProgress}%` : ""}
+                </span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-[#23324A] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-[#4F8CFF] transition-all duration-150"
+                  style={{ width: `${Math.max(shadowProgress, 4)}%` }}
+                />
+              </div>
+            </div>
           ) : (
             <><FiGrid size={14} /><span>{shadowResult ? "Re-run Shadow Analysis" : "Run Shadow Analysis"}</span></>
           )}

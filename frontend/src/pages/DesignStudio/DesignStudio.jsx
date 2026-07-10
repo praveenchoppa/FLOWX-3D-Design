@@ -61,6 +61,10 @@ import {
   reconcileArrayDisplayNames,
 } from "../../features/panels/panelArrays";
 import {
+  panelShadingRefinement,
+  buildRegionExposureOverrideFromRefinement,
+} from "../../features/panels/panelShadingRefinement";
+import {
   fetchSolarResource,
   roundLocationKey,
   solarResourceCache,
@@ -264,7 +268,11 @@ export default function DesignStudio() {
   // (zoning's future input) + summary. Cleared when inputs change.
   const [shadowResult,   setShadowResult]   = useState(null);
   const [shadowRunning,  setShadowRunning]  = useState(false);
+  const [shadowProgress, setShadowProgress] = useState(0);
   const [shadowRunToken, setShadowRunToken] = useState(0);
+  const shadowRunTokenRef = useRef(0);
+  const shadowRunningRef = useRef(false);
+  const shadowResultRef = useRef(null);
   // Heatmap view: "shade" shows 4B shade %, "score" shows 4C exposure score.
   const [heatmapMode, setHeatmapMode] = useState("shade");
 
@@ -448,24 +456,25 @@ export default function DesignStudio() {
   // Trigger: bump the token (the 3D scene watches it and runs the raycast pass).
   const runShadowAnalysis = useCallback(() => {
     if (location.lat == null || roofSections.length === 0) return;
+    setShadowProgress(0);
     setShadowRunning(true);
     setShadowRunToken((t) => t + 1);
   }, [location.lat, roofSections.length]);
 
-  // Receive: store the per-cell result + clear the loading state.
-  const handleShadowResult = useCallback((result) => {
+  const handleShadowProgress = useCallback((pct) => {
+    setShadowProgress(pct);
+  }, []);
+
+  const handleShadowResult = useCallback((result, completedToken) => {
+    if (completedToken !== shadowRunTokenRef.current) return;
     setShadowResult(result);
+    setShadowProgress(100);
     setShadowRunning(false);
   }, []);
 
-  // Invalidate: any change to the day, roof geometry, or obstacles makes a prior
-  // result stale, so clear it (the user must re-run). Does not fire on a run,
-  // since none of these deps change when the result lands.
-  useEffect(() => {
-    setShadowResult(null);
-    setShadowRunning(false);
-    setHeatmapMode("shade");
-  }, [simDay, roofSections, obstacles]);
+  shadowRunTokenRef.current = shadowRunToken;
+  shadowRunningRef.current = shadowRunning;
+  shadowResultRef.current = shadowResult;
 
   // ── Exposure score (Step 4C) — derived from 4B result, no raycasting ──────
   // Pure arithmetic on shadePct + roof orientation + lat; synchronous and fast.
@@ -505,6 +514,35 @@ export default function DesignStudio() {
   // Reconciliation with the new merge result happens inside buildZoneDisplayList.
   const [zoneEdits,      setZoneEdits]      = useState(() => new Map());
   const [selectedZoneId, setSelectedZoneId] = useState(null);
+
+  // User-drawn placement area geometry only — excludes stats refreshed after analysis.
+  const placementAreaGeometryKey = useMemo(
+    () => JSON.stringify(
+      placementAreas.map((a) => ({
+        id: a.id,
+        deleted: !!a.deleted,
+        roofId: a.roofId,
+        outerRing: a.polygon?.outerRing ?? [],
+        holes: a.polygon?.holes ?? [],
+      })),
+    ),
+    [placementAreas],
+  );
+
+  // Invalidate stale shadow results when simulation inputs change.  If a run is
+  // in progress OR a prior result exists, auto-restart with fresh data.
+  useEffect(() => {
+    const shouldRestart = shadowRunningRef.current || shadowResultRef.current != null;
+    setShadowResult(null);
+    setShadowProgress(0);
+    if (shouldRestart) {
+      setShadowRunning(true);
+      setShadowRunToken((t) => t + 1);
+    } else {
+      setShadowRunning(false);
+    }
+    setHeatmapMode("shade");
+  }, [simDay, roofSections, obstacles, businessZones, placementAreaGeometryKey, zoneEdits]);
   const [designState,    setDesignState]    = useState(DESIGN_STATE.CLEAN);
   const [zoneEditMode,   setZoneEditMode]   = useState(ZONE_EDIT_MODES.VERTICES);
   const [zoneToast,      setZoneToast]      = useState(null);
@@ -781,10 +819,41 @@ export default function DesignStudio() {
     [activePanelLayout, placementReady, selectedPanel, arrayDisplayNames],
   );
 
+  // Mount Height engineering refinement — after placement, before energy (pure filter).
+  const panelShadingRefinementResult = useMemo(
+    () => panelShadingRefinement({
+      exposureResult,
+      shadowResult,
+      obstacles,
+      roofSections,
+      panelLayout: activePanelLayout,
+      projectPanelDefaults,
+      placementAreas,
+      placementReady,
+    }),
+    [
+      exposureResult,
+      shadowResult,
+      obstacles,
+      roofSections,
+      activePanelLayout,
+      projectPanelDefaults,
+      placementAreas,
+      placementReady,
+    ],
+  );
+
+  const regionExposureOverride = useMemo(
+    () => buildRegionExposureOverrideFromRefinement(panelShadingRefinementResult),
+    [panelShadingRefinementResult],
+  );
+
   // Step 7B — pure derived energy production (NASA resource × arrays × exposure).
   const liveEnergyResult = useMemo(
-    () => computeEnergyResult(solarResource, panelArrays, placementReady),
-    [solarResource, panelArrays, placementReady],
+    () => computeEnergyResult(solarResource, panelArrays, placementReady, {
+      regionExposureOverride: regionExposureOverride ?? undefined,
+    }),
+    [solarResource, panelArrays, placementReady, regionExposureOverride],
   );
 
   const liveInstalledSystemKw = useMemo(() => {
@@ -1266,7 +1335,14 @@ export default function DesignStudio() {
 
   const updateProjectPanelDefaults = useCallback((patch) => {
     setProjectPanelDefaults((prev) => ({ ...prev, ...patch }));
-  }, []);
+    if (
+      usePlacementAreaPanelWorkflow
+      && generatedPanelLayout
+      && Object.prototype.hasOwnProperty.call(patch, "mountHeight")
+    ) {
+      setDesignState(DESIGN_STATE.DIRTY);
+    }
+  }, [usePlacementAreaPanelWorkflow, generatedPanelLayout]);
 
   const updatePlacementAreaPanelProperties = useCallback((areaId, patch) => {
     setPlacementAreas((prev) =>
@@ -1318,7 +1394,14 @@ export default function DesignStudio() {
         };
       }),
     );
-  }, []);
+    if (
+      usePlacementAreaPanelWorkflow
+      && generatedPanelLayout
+      && Object.prototype.hasOwnProperty.call(configPatch, "mountHeight")
+    ) {
+      setDesignState(DESIGN_STATE.DIRTY);
+    }
+  }, [usePlacementAreaPanelWorkflow, generatedPanelLayout]);
 
   const handleGenerateLayout = useCallback((generateMode = GENERATE_MODES.CAPACITY) => {
     if (!placementReady || !usePlacementAreaPanelWorkflow) return;
@@ -1699,6 +1782,7 @@ export default function DesignStudio() {
     // Shadow heatmap (Step 4B-1)
     shadowResult,
     shadowRunning,
+    shadowProgress,
     runShadowAnalysis,
     canRunShadow: location.lat != null && roofSections.length > 0,
     // Exposure score (Step 4C)
@@ -1760,6 +1844,7 @@ export default function DesignStudio() {
     onSelectPlacementArea: handleSelectPlacementArea,
     onSetPlacementAreaUseProjectDefaults: setPlacementAreaUseProjectDefaults,
     onPatchPlacementAreaConfig: patchPlacementAreaConfig,
+    panelShadingRefinement: panelShadingRefinementResult,
     layoutIsStale,
     hasGeneratedLayout: !!generatedPanelLayout,
     generatedPanelLayout,
@@ -1979,6 +2064,7 @@ export default function DesignStudio() {
                 shadowLat={location.lat}
                 shadowLng={location.lng}
                 onShadowResult={handleShadowResult}
+                onShadowProgress={handleShadowProgress}
                 onPlaceObstacle={placeObstacle}
                 onSelectObstacle={setSelectedObstacleId}
                 onDeselectObstacle={() => setSelectedObstacleId(null)}

@@ -513,6 +513,7 @@ export default function ZonesPanel({
   // Shadow analysis shortcut
   runShadowAnalysis = () => {},
   shadowRunning     = false,
+  shadowProgress    = 0,
   canRunShadow      = false,
   // Business zones (Step 5D)
   businessZones      = [],
@@ -788,7 +789,15 @@ export default function ZonesPanel({
             }`}
           >
             {shadowRunning
-              ? <><FiLoader size={14} className="animate-spin" /><span>Analyzing…</span></>
+              ? (
+                <div className="flex items-center justify-center gap-2">
+                  <FiLoader size={14} className="animate-spin" />
+                  <span>
+                    Analyzing Shadows…
+                    {shadowProgress > 0 ? ` ${shadowProgress}%` : ""}
+                  </span>
+                </div>
+              )
               : <><FiGrid size={14} /><span>Run Shadow Analysis</span></>
             }
           </button>

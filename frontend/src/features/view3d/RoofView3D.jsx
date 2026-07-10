@@ -20,7 +20,7 @@
 
 import { useRef, useMemo, useEffect, useLayoutEffect, useCallback, useState, Suspense } from "react";
 import { Canvas, useThree }                                   from "@react-three/fiber";
-import { OrbitControls, TransformControls }                   from "@react-three/drei";
+import { OrbitControls, TransformControls, Html }                   from "@react-three/drei";
 import { FiMove, FiRotateCcw, FiMaximize2, FiTrash2, FiMousePointer, FiPlus, FiCornerUpLeft, FiCornerUpRight, FiEdit2 } from "react-icons/fi";
 import * as THREE                                             from "three";
 
@@ -33,12 +33,19 @@ import {
   insetPolygon,
 } from "./roofGeometry3d";
 import { getObstacleDef } from "../obstacles/obstacleTypes";
+import { formatMeasurement } from "../measurements/measurementUtils";
 import SunSystem from "./SunSystem";
 import { getSun, getDayTimes } from "../simulation/solar";
 import {
-  chooseCellSize, summarizeShade,
+  chooseCellSize,
   SHADOW_CELL_SIZE, MAX_CELLS_PER_ROOF, SHADOW_STEP_MIN,
 } from "../simulation/shadowGrid";
+import {
+  createShadowRaycastContext,
+  runShadowGridBatched,
+  runShadowGridSync,
+  yieldToMainThread,
+} from "../simulation/shadowGridRunner";
 import { ZONE_META } from "../zones/zoneClassification";
 import ZoneMergedPolygons   from "./ZoneMergedPolygons";
 import ZonePolygonEditor    from "./ZonePolygonEditor";
@@ -226,76 +233,60 @@ function cellUnderObstacle(cx, cz, obstacles, roofId) {
 }
 
 /**
- * Run the measured day-shadow analysis.
+ * Build the shadow-grid work plan (cell sampling + obstacle short-circuit).
+ * Raycast cells are queued; obstacle cells are resolved immediately.
  *
- * @param {THREE.Scene} scene        live scene (source of shadow-caster meshes)
- * @param {Array}       roofSections roof model
- * @param {Array}       obstacles    current obstacle list (renderer-agnostic model)
- * @param {{lat:number,lng:number}} centre  design centre
- * @param {Date}        day          selected calendar day
- * @param {number} lat @param {number} lng  project location
- * @returns {{ day:Date, steps:number, byRoof:Object, summary:Object }}
+ * @returns {object} plan for runShadowGridSync / runShadowGridBatched
  */
-function computeShadowGrid(scene, roofSections, obstacles, centre, day, lat, lng) {
-  // 1. Collect raycast targets (tagged meshes only — skips ground/arc/overlay).
-  const meshes = [];
-  scene.traverse((o) => {
-    if (o.isMesh && o.userData && o.userData.shadowCaster) meshes.push(o);
-  });
+function prepareShadowGridPlan(scene, roofSections, obstacles, centre, day, lat, lng) {
+  const ctx = createShadowRaycastContext(
+    scene, day, lat, lng, getSun, getDayTimes, SHADOW_STEP_MIN,
+  );
+  const { steps } = ctx;
 
-  // 2. Precompute the day's above-horizon sun directions (shared by all cells).
-  const { sunriseMin, sunsetMin } = getDayTimes(day, lat, lng);
-  const dirs = [];
-  if (sunriseMin != null && sunsetMin != null) {
-    for (let m = sunriseMin; m <= sunsetMin; m += SHADOW_STEP_MIN) {
-      const sun = getSun(day, m, lat, lng);
-      if (!sun.belowHorizon) {
-        dirs.push(new THREE.Vector3(sun.dir.x, sun.dir.y, sun.dir.z).normalize());
-      }
-    }
-  }
-  const steps = dirs.length;
-
-  // 3. Per-cell raycast (reuse a single raycaster + origin vector).
-  const raycaster = new THREE.Raycaster();
-  const origin    = new THREE.Vector3();
-  const byRoof    = {};
-  const allCells  = [];
+  const byRoof = {};
+  const allCells = [];
+  const raycastQueue = [];
 
   for (const sec of roofSections) {
     const deck = roofDeckPolygon(sec.id, roofSections, centre);
     if (!deck) continue;
-    const baseY   = Math.max(sec.height ?? 3, 0.15) + 0.02;
+    const baseY = Math.max(sec.height ?? 3, 0.15) + 0.02;
     const isInside = (x, z) => pointInPolygon(x, z, deck);
     const { size, cells } = chooseCellSize(
       deck, SHADOW_CELL_SIZE, MAX_CELLS_PER_ROOF, isInside,
     );
 
     for (const cell of cells) {
-      // Short-circuit: cells inside an obstacle footprint are always fully
-      // shaded AND non-usable (a solar panel can never go there). Skipping the
-      // raycast here avoids the front-face-culling false-sunny bug.
       if (cellUnderObstacle(cell.x, cell.z, obstacles, sec.id)) {
-        cell.shadePct      = 1.0;
+        cell.shadePct = 1.0;
         cell.underObstacle = true;
         allCells.push(cell);
         continue;
       }
-
-      // +0.05 m so the ray starts just above its own deck (no self-hit).
-      origin.set(cell.x, baseY + 0.05, cell.z);
-      let shaded = 0;
-      for (let s = 0; s < steps; s++) {
-        raycaster.set(origin, dirs[s]);
-        if (raycaster.intersectObjects(meshes, false).length > 0) shaded++;
-      }
-      cell.shadePct = steps ? shaded / steps : 0;
+      raycastQueue.push({ cell, baseY });
       allCells.push(cell);
     }
     byRoof[sec.id] = { cellSize: size, baseY, cells };
   }
 
-  return { day, steps, byRoof, summary: summarizeShade(allCells) };
+  return { day, steps, byRoof, allCells, raycastQueue, ctx };
+}
+
+/**
+ * Run the measured day-shadow analysis (synchronous — parity / tests).
+ */
+function computeShadowGrid(scene, roofSections, obstacles, centre, day, lat, lng) {
+  const plan = prepareShadowGridPlan(scene, roofSections, obstacles, centre, day, lat, lng);
+  return runShadowGridSync(plan);
+}
+
+/**
+ * Run the measured day-shadow analysis (chunked — keeps the browser responsive).
+ */
+async function computeShadowGridAsync(scene, roofSections, obstacles, centre, day, lat, lng, options) {
+  const plan = prepareShadowGridPlan(scene, roofSections, obstacles, centre, day, lat, lng);
+  return runShadowGridBatched(plan, options);
 }
 
 // ── Scene bounds (shared by sun light / arc / shadow camera) ─────────────────
@@ -506,7 +497,9 @@ function RoofSection({ section, isSelected, centre, placing, onPlace }) {
 }
 
 // ── Obstacle primitive ────────────────────────────────────────────────────────
-function ObstacleMesh({ obstacle, baseY, isSelected, placing, interactive, onSelect }) {
+function ObstacleMesh({
+  obstacle, baseY, isSelected, placing, interactive, onSelect, isHovered, onHoverStart, onHoverEnd,
+}) {
   const def = getObstacleDef(obstacle.type);
   if (!def) return null;
 
@@ -519,38 +512,76 @@ function ObstacleMesh({ obstacle, baseY, isSelected, placing, interactive, onSel
   // Base sits on the deck; centre the primitive at half its height.
   const cy = baseY + h / 2;
   const color = isSelected ? C.obstacleSel : C.obstacle;
+  const showTooltip = isHovered && !placing;
 
   return (
-    <mesh
-      position={[obstacle.position.x, cy, obstacle.position.z]}
-      rotation={[0, obstacle.rotation ?? 0, 0]}
-      castShadow
-      receiveShadow
-      userData={{ shadowCaster: true }}
-      // Selectable only when interactive (Step 3) and not placing. On Step 4 the
-      // obstacle still renders (so it casts shadows) but ignores clicks.
-      onClick={
-        interactive && !placing
+    <group
+      onPointerOver={
+        !placing
           ? (e) => {
               e.stopPropagation();
-              onSelect(obstacle.id);
+              onHoverStart?.(obstacle.id);
+            }
+          : undefined
+      }
+      onPointerOut={
+        !placing
+          ? (e) => {
+              e.stopPropagation();
+              onHoverEnd?.();
             }
           : undefined
       }
     >
-      {def.shape === "cylinder" ? (
-        <cylinderGeometry args={[w / 2, w / 2, h, 24]} />
-      ) : (
-        <boxGeometry args={[w, h, l]} />
+      <mesh
+        position={[obstacle.position.x, cy, obstacle.position.z]}
+        rotation={[0, obstacle.rotation ?? 0, 0]}
+        castShadow
+        receiveShadow
+        userData={{ shadowCaster: true }}
+        // Selectable only when interactive (Step 3) and not placing. On Step 4 the
+        // obstacle still renders (so it casts shadows) but ignores clicks.
+        onClick={
+          interactive && !placing
+            ? (e) => {
+                e.stopPropagation();
+                onSelect(obstacle.id);
+              }
+            : undefined
+        }
+      >
+        {def.shape === "cylinder" ? (
+          <cylinderGeometry args={[w / 2, w / 2, h, 24]} />
+        ) : (
+          <boxGeometry args={[w, h, l]} />
+        )}
+        <meshStandardMaterial
+          color={color}
+          emissive={isSelected ? C.obstacleSel : "#000000"}
+          emissiveIntensity={isSelected ? 0.35 : 0}
+          roughness={0.7}
+          metalness={0.05}
+        />
+      </mesh>
+
+      {showTooltip && (
+        <Html
+          position={[obstacle.position.x, baseY + h + 0.35, obstacle.position.z]}
+          center
+          distanceFactor={14}
+          style={{ pointerEvents: "none" }}
+        >
+          <div className="px-3 py-2 rounded-xl bg-[rgba(7,17,32,0.92)] border border-[#23324A] shadow-lg min-w-[160px]">
+            <p className="text-[11px] font-semibold text-[#F8FAFC] mb-1.5">{obstacle.type}</p>
+            <div className="flex flex-col gap-0.5 text-[10px] text-[#94A3B8]">
+              <p>Height: <span className="text-[#F8FAFC] tabular-nums">{formatMeasurement(h)}</span></p>
+              <p>Width: <span className="text-[#F8FAFC] tabular-nums">{formatMeasurement(w)}</span></p>
+              <p>Length: <span className="text-[#F8FAFC] tabular-nums">{formatMeasurement(l)}</span></p>
+            </div>
+          </div>
+        </Html>
       )}
-      <meshStandardMaterial
-        color={color}
-        emissive={isSelected ? C.obstacleSel : "#000000"}
-        emissiveIntensity={isSelected ? 0.35 : 0}
-        roughness={0.7}
-        metalness={0.05}
-      />
-    </mesh>
+    </group>
   );
 }
 
@@ -558,6 +589,8 @@ function ObstacleMesh({ obstacle, baseY, isSelected, placing, interactive, onSel
 function Obstacles({
   obstacles, roofSections, selectedObstacleId, gizmoActive, placing, interactive, onSelect,
 }) {
+  const [hoveredObstacleId, setHoveredObstacleId] = useState(null);
+
   return obstacles.map((o) => {
     // When the transform gizmo is active, it renders the selected obstacle's
     // proxy mesh, so we hide the regular mesh to avoid overlap.
@@ -571,6 +604,9 @@ function Obstacles({
         obstacle={o}
         baseY={baseY}
         isSelected={interactive && o.id === selectedObstacleId}
+        isHovered={o.id === hoveredObstacleId}
+        onHoverStart={setHoveredObstacleId}
+        onHoverEnd={() => setHoveredObstacleId(null)}
         placing={placing}
         interactive={interactive}
         onSelect={onSelect}
@@ -843,25 +879,77 @@ function SceneControls({ cameraPreset, roofSections, centre, orbitRef, panelDrag
 
 // ── Shadow analysis runner (no visual; computes on demand) ───────────────────
 /**
- * Watches `runToken`; when it increments, runs the measured shadow analysis on
- * the next macrotask (so the panel spinner paints first), then reports the
- * result via onResult.  Re-running is driven entirely by the token from above.
+ * Watches `runToken`; when it increments, runs the measured shadow analysis in
+ * chunked batches (yielding each frame) so the browser stays responsive.
+ * Cancels immediately when inputs change or a newer run supersedes this one.
  */
-function ShadowAnalysisRunner({ runToken, roofSections, obstacles, centre, day, lat, lng, onResult }) {
+function ShadowAnalysisRunner({
+  runToken,
+  roofSections,
+  obstacles,
+  centre,
+  day,
+  lat,
+  lng,
+  onResult,
+  onProgress,
+}) {
   const { scene } = useThree();
-  const processedRef = useRef(0);
+  const activeRunRef = useRef(0);
 
   useEffect(() => {
-    if (runToken <= processedRef.current) return;
-    if (lat == null || lng == null || !roofSections.length) return;
-    processedRef.current = runToken;
-    // setTimeout(0) yields to the browser so the loading state is painted
-    // before the synchronous raycast pass blocks the thread.
-    const id = setTimeout(() => {
-      onResult(computeShadowGrid(scene, roofSections, obstacles, centre, day, lat, lng));
-    }, 0);
-    return () => clearTimeout(id);
-  }, [runToken, day, lat, lng, roofSections, obstacles, centre, scene, onResult]);
+    if (runToken <= 0) return undefined;
+    if (lat == null || lng == null || !roofSections.length) return undefined;
+
+    const thisRun = runToken;
+    activeRunRef.current = thisRun;
+    let cancelled = false;
+
+    const run = async () => {
+      await yieldToMainThread();
+
+      if (cancelled || activeRunRef.current !== thisRun) return;
+
+      onProgress?.(0);
+
+      const result = await computeShadowGridAsync(
+        scene,
+        roofSections,
+        obstacles,
+        centre,
+        day,
+        lat,
+        lng,
+        {
+          onProgress,
+          shouldCancel: () => cancelled || activeRunRef.current !== thisRun,
+        },
+      );
+
+      if (cancelled || activeRunRef.current !== thisRun || !result) return;
+      onResult(result, thisRun);
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+      if (activeRunRef.current === thisRun) {
+        activeRunRef.current = 0;
+      }
+    };
+  }, [
+    runToken,
+    day,
+    lat,
+    lng,
+    roofSections,
+    obstacles,
+    centre,
+    scene,
+    onResult,
+    onProgress,
+  ]);
 
   return null;
 }
@@ -976,6 +1064,7 @@ function Scene({
   shadowLat,
   shadowLng,
   onShadowResult,
+  onShadowProgress = () => {},
   onPlaceObstacle,
   onSelectObstacle,
   onUpdateObstacle,
@@ -1198,6 +1287,7 @@ function Scene({
           lat={shadowLat}
           lng={shadowLng}
           onResult={onShadowResult}
+          onProgress={onShadowProgress}
         />
       )}
       {/* Per-cell heatmap — shade, score, or zone-cells (per-cell zone colors).
@@ -1375,6 +1465,7 @@ export default function RoofView3D({
   shadowLat = null,
   shadowLng = null,
   onShadowResult = () => {},
+  onShadowProgress = () => {},
   onPlaceObstacle    = () => {},
   onSelectObstacle   = () => {},
   onDeselectObstacle = () => {},
@@ -1515,6 +1606,7 @@ export default function RoofView3D({
               shadowLat={shadowLat}
               shadowLng={shadowLng}
               onShadowResult={onShadowResult}
+              onShadowProgress={onShadowProgress}
               onPlaceObstacle={onPlaceObstacle}
               onSelectObstacle={onSelectObstacle}
               onUpdateObstacle={onUpdateObstacle}

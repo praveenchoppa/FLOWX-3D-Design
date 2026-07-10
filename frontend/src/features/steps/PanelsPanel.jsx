@@ -34,6 +34,7 @@ import {
   PLACEMENT_MODES,
   CAPACITY_INPUT_MODES,
 } from "../panels/panelCapacityPlanning";
+import { SHADING_ENGINEERING_STATUS } from "../panels/panelShadingRefinement";
 
 function formatDim(m) {
   if (m == null || isNaN(m)) return "—";
@@ -53,6 +54,74 @@ const inputClass =
   "w-full px-3 py-2 rounded-lg bg-[rgba(7,17,32,0.6)] border border-[#23324A] text-[13px] text-[#F8FAFC] outline-none focus:border-[#4F8CFF] disabled:opacity-50 disabled:cursor-not-allowed";
 
 const selectClass = `${inputClass} cursor-pointer`;
+
+const SHADING_STATUS_META = {
+  [SHADING_ENGINEERING_STATUS.CLEARANCE]: {
+    icon: "🟢",
+    label: "Clearance Achieved",
+    border: "border-[#00E38C]/30",
+    bg: "bg-[#00E38C]/8",
+    title: "text-[#00E38C]",
+  },
+  [SHADING_ENGINEERING_STATUS.POSSIBLE]: {
+    icon: "🟡",
+    label: "Possible Shading",
+    border: "border-[#FFB547]/30",
+    bg: "bg-[#FFB547]/8",
+    title: "text-[#FFB547]",
+  },
+  [SHADING_ENGINEERING_STATUS.SIGNIFICANT]: {
+    icon: "🔴",
+    label: "Significant Shading",
+    border: "border-red-500/30",
+    bg: "bg-red-500/8",
+    title: "text-red-400",
+  },
+};
+
+function ObstacleEngineeringCard({ entry }) {
+  const meta = SHADING_STATUS_META[entry.status] ?? SHADING_STATUS_META.possible;
+  return (
+    <div className={`flex flex-col gap-2 px-3 py-3 rounded-xl ${meta.bg} border ${meta.border}`}>
+      <div className="flex items-center gap-2">
+        <span className="text-sm leading-none">{meta.icon}</span>
+        <span className={`text-[11px] font-semibold ${meta.title}`}>{meta.label}</span>
+      </div>
+      <p className="text-[11px] font-medium text-[#F8FAFC]">{entry.name}</p>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[10px] text-[#94A3B8]">
+        <p>Obstacle height: <span className="text-[#F8FAFC] tabular-nums">{entry.height.toFixed(2)} m</span></p>
+        <p>Mount height: <span className="text-[#F8FAFC] tabular-nums">{entry.mountHeight.toFixed(2)} m</span></p>
+      </div>
+      <p className="text-[10px] text-[#94A3B8] leading-relaxed">{entry.summary}</p>
+      <p className="text-[10px] text-[#94A3B8]">
+        Estimated shading impact:{" "}
+        <span className="text-[#F8FAFC] font-medium">{entry.impactLabel}</span>
+      </p>
+    </div>
+  );
+}
+
+function MountHeightEngineeringSection({ panelShadingRefinement }) {
+  const entries = panelShadingRefinement?.obstacles ?? [];
+  if (!entries.length) return null;
+
+  return (
+    <>
+      <div className="flex flex-col gap-2">
+        <span className={SEC_LABEL} style={{ marginBottom: 0 }}>Mount Height Engineering</span>
+        <p className="text-[10px] text-[#4a5c75] leading-relaxed px-1">
+          Clearance filter applied to existing shadow analysis. Solar simulation is not rerun.
+        </p>
+        <div className="flex flex-col gap-2">
+          {entries.map((entry) => (
+            <ObstacleEngineeringCard key={entry.id} entry={entry} />
+          ))}
+        </div>
+      </div>
+      {DIVIDER}
+    </>
+  );
+}
 
 function PanelConfigFields({
   config,
@@ -497,6 +566,7 @@ export default function PanelsPanel({
   selectedPanelSlotId = null,
   isStaleDesign = false,
   onUpdateDesign = () => {},
+  panelShadingRefinement = null,
 }) {
   const areaLayoutSummaries = useMemo(
     () => buildPlacementAreaLayoutSummaries(placementAreas, panelLayout),
@@ -767,6 +837,10 @@ export default function PanelsPanel({
           </div>
           {DIVIDER}
         </>
+      )}
+
+      {usePlacementAreaPanelWorkflow && hasGeneratedLayout && (
+        <MountHeightEngineeringSection panelShadingRefinement={panelShadingRefinement} />
       )}
 
       {hasGeneratedLayout && capacity.panelCount > 0 && (

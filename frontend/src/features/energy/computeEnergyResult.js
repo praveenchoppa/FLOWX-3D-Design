@@ -58,6 +58,8 @@ export function buildRegionExposureMap(placementReady) {
  * @param {object|null} placementReady  Step 5H (region avgScore from 4C)
  * @param {object}      [options]
  * @param {object}      [options.lossFactors]
+ * @param {Map<string, number>} [options.regionExposureOverride]
+ *   Per-region avgScore from panelShadingRefinement — consumer input only.
  * @returns {object|null}
  */
 export function computeEnergyResult(
@@ -74,7 +76,9 @@ export function computeEnergyResult(
   const lossFactors = options.lossFactors ?? ENERGY_LOSS_FACTORS;
   const performanceRatio = computePerformanceRatio(lossFactors);
   const nonShadingTotal = totalNonShadingLoss(lossFactors);
-  const scoreByRegion = buildRegionExposureMap(placementReady);
+  const scoreByRegion = options.regionExposureOverride?.size
+    ? options.regionExposureOverride
+    : buildRegionExposureMap(placementReady);
 
   const lossesTemplate = {
     ...lossFactors,

@@ -12,7 +12,8 @@
  *           ↓ computePlacementReady()
  *           ↓ computePanelLayout() / panel overrides
  *           ↓ computePanelArrays()
- *           ↓ computeEnergyResult()
+ *           ↓ panelShadingRefinement()  (mount-height filter on 4C cells)
+ *           ↓ computeEnergyResult()   (consumes refined region exposure)
  *           ↓ computeCostResult / Savings / ROI / Coverage
  *           ↓ committedResults snapshot
  *           ↓ designState = CLEAN
