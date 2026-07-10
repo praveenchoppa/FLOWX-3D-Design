@@ -26,20 +26,39 @@ const DEG2RAD = Math.PI / 180;
 let cellTexture = null;
 let sharedMaterials = null;
 
+/** Bump when regenerating shared PV surface assets (dev hot-reload safety). */
+const SURFACE_ASSETS_REV = 2;
+
+function cellHash(c, r) {
+  return ((c * 73856093) ^ (r * 19349663)) >>> 0;
+}
+
+function monoCellColor(hash) {
+  const hue = 215 + (hash % 7) - 3;
+  const sat = 42 + (hash % 5);
+  const lit = 14 + (hash % 4);
+  return `hsl(${hue}, ${sat}%, ${lit}%)`;
+}
+
+/**
+ * Procedural monocrystalline module face — 6×24 half-cut grid on a 1:2 canvas.
+ * Single lightweight CanvasTexture; no per-cell meshes.
+ */
 function createCellTexture() {
+  const cols = 6;
+  const rows = 24;
   const canvas = document.createElement("canvas");
-  canvas.width = 320;
-  canvas.height = 640;
+  canvas.width = 384;
+  canvas.height = 768;
   const ctx = canvas.getContext("2d");
 
-  ctx.fillStyle = "#050810";
+  // Gap colour shows through between cells (thin separation lines).
+  ctx.fillStyle = "#020408";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const cols = 12;
-  const rows = 24;
   const cellW = canvas.width / cols;
   const cellH = canvas.height / rows;
-  const gap = 2;
+  const gap = 1.25;
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
@@ -47,68 +66,121 @@ function createCellTexture() {
       const y = r * cellH + gap;
       const w = cellW - gap * 2;
       const h = cellH - gap * 2;
+      const hash = cellHash(c, r);
 
       const grad = ctx.createLinearGradient(x, y, x + w, y + h);
-      grad.addColorStop(0, "#0b1526");
-      grad.addColorStop(0.45, "#152238");
-      grad.addColorStop(1, "#070e18");
+      grad.addColorStop(0, monoCellColor(hash));
+      grad.addColorStop(0.38, `hsl(${216 + (hash % 3)}, 38%, ${16 + (hash % 3)}%)`);
+      grad.addColorStop(0.72, `hsl(${212 + (hash % 4)}, 44%, ${12 + (hash % 2)}%)`);
+      grad.addColorStop(1, `hsl(${208 + (hash % 5)}, 36%, 10%)`);
       ctx.fillStyle = grad;
       ctx.fillRect(x, y, w, h);
 
-      ctx.strokeStyle = "rgba(210, 220, 235, 0.42)";
-      ctx.lineWidth = 1.1;
-      ctx.beginPath();
-      ctx.moveTo(x + w * 0.5, y + 3);
-      ctx.lineTo(x + w * 0.5, y + h - 3);
-      ctx.stroke();
+      // Crystalline facet highlight (subtle, not mirror-like).
+      const facet = ctx.createLinearGradient(x, y, x + w * 0.55, y + h * 0.45);
+      facet.addColorStop(0, "rgba(140, 175, 210, 0.07)");
+      facet.addColorStop(1, "rgba(0, 0, 0, 0)");
+      ctx.fillStyle = facet;
+      ctx.fillRect(x, y, w, h);
 
-      ctx.strokeStyle = "rgba(160, 175, 195, 0.18)";
-      ctx.lineWidth = 0.6;
+      // Thin vertical busbars — subtle silver, visible at engineering zoom.
+      const busPositions = [0.28, 0.5, 0.72];
+      for (const t of busPositions) {
+        ctx.strokeStyle = "rgba(175, 185, 198, 0.22)";
+        ctx.lineWidth = 0.65;
+        ctx.beginPath();
+        ctx.moveTo(x + w * t, y + 2);
+        ctx.lineTo(x + w * t, y + h - 2);
+        ctx.stroke();
+      }
+
+      // Faint horizontal collector trace.
+      ctx.strokeStyle = "rgba(150, 165, 180, 0.1)";
+      ctx.lineWidth = 0.45;
       ctx.beginPath();
-      ctx.moveTo(x + 4, y + h * 0.72);
-      ctx.lineTo(x + w - 4, y + h * 0.72);
+      ctx.moveTo(x + 3, y + h * 0.78);
+      ctx.lineTo(x + w - 3, y + h * 0.78);
       ctx.stroke();
     }
   }
 
-  ctx.strokeStyle = "rgba(220, 230, 240, 0.22)";
-  ctx.lineWidth = 1.2;
+  // Reinforce inter-cell gaps (very thin — not deep grooves).
+  ctx.strokeStyle = "rgba(0, 0, 0, 0.72)";
+  ctx.lineWidth = 0.85;
   for (let c = 0; c <= cols; c++) {
+    const px = c * cellW + 0.5;
     ctx.beginPath();
-    ctx.moveTo(c * cellW, 0);
-    ctx.lineTo(c * cellW, canvas.height);
+    ctx.moveTo(px, 0);
+    ctx.lineTo(px, canvas.height);
     ctx.stroke();
   }
   for (let r = 0; r <= rows; r++) {
+    const py = r * cellH + 0.5;
     ctx.beginPath();
-    ctx.moveTo(0, r * cellH);
-    ctx.lineTo(canvas.width, r * cellH);
+    ctx.moveTo(0, py);
+    ctx.lineTo(canvas.width, py);
     ctx.stroke();
   }
+
+  // Edge darkening — tempered glass falloff at module perimeter.
+  const edgeGrad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+  edgeGrad.addColorStop(0, "rgba(0, 0, 0, 0.38)");
+  edgeGrad.addColorStop(0.06, "rgba(0, 0, 0, 0)");
+  edgeGrad.addColorStop(0.94, "rgba(0, 0, 0, 0)");
+  edgeGrad.addColorStop(1, "rgba(0, 0, 0, 0.38)");
+  ctx.fillStyle = edgeGrad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const edgeGradV = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  edgeGradV.addColorStop(0, "rgba(0, 0, 0, 0.28)");
+  edgeGradV.addColorStop(0.05, "rgba(0, 0, 0, 0)");
+  edgeGradV.addColorStop(0.95, "rgba(0, 0, 0, 0)");
+  edgeGradV.addColorStop(1, "rgba(0, 0, 0, 0.32)");
+  ctx.fillStyle = edgeGradV;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Tempered-glass sheen — low-opacity, avoids mirror finish.
+  const sheen = ctx.createLinearGradient(0, 0, canvas.width * 0.65, canvas.height * 0.35);
+  sheen.addColorStop(0, "rgba(200, 220, 240, 0.09)");
+  sheen.addColorStop(0.45, "rgba(160, 190, 220, 0.03)");
+  sheen.addColorStop(1, "rgba(0, 0, 0, 0)");
+  ctx.fillStyle = sheen;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
-  tex.anisotropy = 4;
+  tex.anisotropy = 8;
   tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
   return tex;
 }
 
 export function getSharedMaterials() {
-  if (sharedMaterials) return sharedMaterials;
+  if (sharedMaterials && sharedMaterials._rev === SURFACE_ASSETS_REV) return sharedMaterials;
 
-  const tex = cellTexture ?? createCellTexture();
+  if (cellTexture) {
+    cellTexture.dispose();
+    cellTexture = null;
+  }
+  if (sharedMaterials) {
+    Object.values(sharedMaterials).forEach((m) => m?.dispose?.());
+    sharedMaterials = null;
+  }
+
+  const tex = createCellTexture();
   cellTexture = tex;
 
   sharedMaterials = {
+    _rev: SURFACE_ASSETS_REV,
     glass: new THREE.MeshStandardMaterial({
       map: tex,
-      color: "#142236",
-      emissive: "#0a1420",
-      emissiveIntensity: 0.05,
-      roughness: 0.1,
-      metalness: 0.06,
-      envMapIntensity: 0.45,
+      color: "#eef2f8",
+      emissive: "#000000",
+      emissiveIntensity: 0,
+      roughness: 0.09,
+      metalness: 0.11,
+      envMapIntensity: 0.52,
     }),
     frame: new THREE.MeshStandardMaterial({
       color: "#c8d0d8",

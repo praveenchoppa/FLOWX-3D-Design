@@ -21,6 +21,7 @@
 import { useRef, useMemo, useEffect, useLayoutEffect, useCallback, useState, Suspense } from "react";
 import { Canvas, useThree }                                   from "@react-three/fiber";
 import { OrbitControls, TransformControls, Html }                   from "@react-three/drei";
+import { useZoomToCursor } from "./zoomToCursor.js";
 import { FiMove, FiRotateCcw, FiMaximize2, FiTrash2, FiMousePointer, FiPlus, FiCornerUpLeft, FiCornerUpRight, FiEdit2 } from "react-icons/fi";
 import * as THREE                                             from "three";
 
@@ -358,7 +359,12 @@ function ShadowLight() {
 // ── Ground plane ──────────────────────────────────────────────────────────────
 function GroundPlane() {
   return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.06, 0]} receiveShadow>
+    <mesh
+      rotation={[-Math.PI / 2, 0, 0]}
+      position={[0, -0.06, 0]}
+      receiveShadow
+      userData={{ zoomFocusType: "ground" }}
+    >
       <planeGeometry args={[2000, 2000]} />
       <meshStandardMaterial color={C.ground} roughness={1} metalness={0} />
     </mesh>
@@ -470,7 +476,7 @@ function RoofSection({ section, isSelected, centre, placing, onPlace }) {
         position={[cx, h + 0.02, -cy]}
         castShadow
         receiveShadow
-        userData={{ shadowCaster: true }}
+        userData={{ shadowCaster: true, zoomFocusType: "roof" }}
         onClick={
           placing
             ? (e) => {
@@ -538,9 +544,7 @@ function ObstacleMesh({
         rotation={[0, obstacle.rotation ?? 0, 0]}
         castShadow
         receiveShadow
-        userData={{ shadowCaster: true }}
-        // Selectable only when interactive (Step 3) and not placing. On Step 4 the
-        // obstacle still renders (so it casts shadows) but ignores clicks.
+        userData={{ shadowCaster: true, zoomFocusType: "obstacle" }}
         onClick={
           interactive && !placing
             ? (e) => {
@@ -813,6 +817,8 @@ function TransformGizmo({
 // disable/re-enable OrbitControls during gizmo drags.
 function SceneControls({ cameraPreset, roofSections, centre, orbitRef, panelDragActive = false }) {
   const { camera } = useThree();
+
+  useZoomToCursor({ orbitRef, enabled: !panelDragActive });
 
   useEffect(() => {
     if (orbitRef.current) {
@@ -1112,7 +1118,9 @@ function Scene({
   zoneEditMode        = ZONE_EDIT_MODES.VERTICES,
   onCommitZonePolygon = () => {},
   showDimensions      = false,
+  measurementStepVisibility = {},
   measureEditRoof     = false,
+  showPanelEditToolbar = false,
 }) {
   const orbitRef = useRef(null);
 
@@ -1181,7 +1189,8 @@ function Scene({
     && !isDrawingBizZone
     && !isDrawingPlacementArea;
 
-  const placementAreaEditorActive = selectedPlacementArea
+  const placementAreaEditorActive = showPlacementAreas
+    && selectedPlacementArea
     && !presentationMode
     && !isDrawingBizZone
     && !isDrawingPlacementArea;
@@ -1399,6 +1408,7 @@ function Scene({
       {/* ── Dynamic measurement overlay (Phase 1 — visual only) ──────── */}
       <MeasurementOverlay3D
         showDimensions={showDimensions}
+        measurementStepVisibility={measurementStepVisibility}
         measureEdit={{
           obstacle: obstacleMeasureEditing,
           zone:     zoneMeasure.editing,
@@ -1413,7 +1423,7 @@ function Scene({
         zoneOuterRing={zoneMeasure.outerRing}
         zoneEditorActive={zoneEditorActive}
         zoneBaseY={selectedZoneBaseY}
-        placedPanels={placedPanels}
+        placedPanels={measurementStepVisibility.panel ? placedPanels : []}
         selectedPanelSlotId={selectedPanelSlotId}
         roofSectionsForPanels={roofSections}
       />
@@ -1525,7 +1535,9 @@ export default function RoofView3D({
   onSetZoneEditMode   = () => {},
   onCommitZonePolygon = () => {},
   showDimensions      = false,
+  measurementStepVisibility = {},
   measureEditRoof     = false,
+  showPanelEditToolbar = false,
 }) {
   // Design centre: shared origin for all section coordinate conversions.
   // Only recomputes when coordinates change, not on every metadata edit.
@@ -1649,7 +1661,9 @@ export default function RoofView3D({
               zoneEditMode={zoneEditMode}
               onCommitZonePolygon={onCommitZonePolygon}
               showDimensions={showDimensions}
+              measurementStepVisibility={measurementStepVisibility}
               measureEditRoof={measureEditRoof}
+              showPanelEditToolbar={showPanelEditToolbar}
             />
           </Canvas>
         </Suspense>
@@ -1720,7 +1734,7 @@ export default function RoofView3D({
       )}
 
       {/* ── Panel edit toolbar (Step 6B-1) ─────────────────────────────── */}
-      {panelsInteractive && !presentationMode && (
+      {showPanelEditToolbar && !presentationMode && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 p-1 bg-[rgba(16,27,45,0.88)] backdrop-blur-xl border border-[#23324A] rounded-full shadow-lg">
           <button
             onClick={() => onSetPanelEditMode("select")}
@@ -1855,14 +1869,14 @@ export default function RoofView3D({
       </div>
 
       {/* Panel edit hints (Step 6B-1) */}
-      {!presentationMode && panelsInteractive && panelEditMode === "add" && (
+      {!presentationMode && showPanelEditToolbar && panelEditMode === "add" && (
         <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-xl bg-[rgba(79,140,255,0.16)] backdrop-blur-md border border-[#4F8CFF]/40">
           <span className="text-[11px] text-[#cfe0ff]">
             Click a <b>ghost slot</b> to add a panel · Esc to return to Select
           </span>
         </div>
       )}
-      {!presentationMode && panelsInteractive && panelEditMode === "select" && selectedPanelSlotId && (
+      {!presentationMode && showPanelEditToolbar && panelEditMode === "select" && selectedPanelSlotId && (
         <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-xl bg-[rgba(16,27,45,0.88)] backdrop-blur-md border border-[#23324A]">
           <span className="text-[11px] text-[#94A3B8]">
             Panel selected · drag to snap · <b>Rotate</b> · <b>Delete</b> / Del · Esc to deselect

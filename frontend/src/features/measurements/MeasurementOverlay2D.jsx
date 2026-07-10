@@ -12,11 +12,13 @@ import { computeRoofSectionDimensions } from "./measurementUtils";
 
 export default function MeasurementOverlay2D({
   showDimensions  = false,
+  measurementStepVisibility = {},
   roofSections    = [],
   selectedRoofId  = null,
   roofEditLive    = null,
   measureEditRoof = false,
 }) {
+  const allowRoof = !!measurementStepVisibility.roof;
   const map = useMap();
   const [, setTick] = useState(0);
 
@@ -53,9 +55,9 @@ export default function MeasurementOverlay2D({
       });
   }, [roofSections, centre, roofEditLive, selectedRoofId, measureEditRoof]);
 
-  const visibleItems = roofItems.filter((item) =>
-    shouldShowCadObject(showDimensions, item.isEditing),
-  );
+  const visibleItems = allowRoof
+    ? roofItems.filter((item) => shouldShowCadObject(showDimensions, item.isEditing))
+    : [];
 
   useEffect(() => {
     if (!visibleItems.length) return undefined;

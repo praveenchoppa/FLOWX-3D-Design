@@ -64,6 +64,7 @@ import {
   panelShadingRefinement,
   buildRegionExposureOverrideFromRefinement,
 } from "../../features/panels/panelShadingRefinement";
+import { getWorkspaceVisibility, getMeasurementVisibility, resolvePlacementAreasVisible } from "../../features/studio/workspaceVisibility";
 import {
   fetchSolarResource,
   roundLocationKey,
@@ -364,6 +365,13 @@ export default function DesignStudio() {
     setSimPlaying(false);
     setIsDrawingBizZone(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep]);
+
+  // Location (Step 1) is map-only — force 2D when entering this step.
+  useEffect(() => {
+    if (currentStep === 1) {
+      setView3D(false);
+    }
   }, [currentStep]);
 
   // One-time auto 3D when first entering Step 3 (obstacle placement). Preserves
@@ -768,12 +776,45 @@ export default function DesignStudio() {
     [renderedPlacedPanels],
   );
 
-  // Panels appear only from Step 6 onward (placement-ready workflow).
-  const showPlacedPanelsInWorkspace = useMemo(() => {
-    if (currentStep < 6) return false;
-    if (usePlacementAreaPanelWorkflow) return !!generatedPanelLayout;
-    return hasPlacedPanels;
-  }, [currentStep, usePlacementAreaPanelWorkflow, generatedPanelLayout, hasPlacedPanels]);
+  const workspaceVisibility = useMemo(
+    () => getWorkspaceVisibility(currentStep, {
+      usePlacementAreaPanelWorkflow,
+      hasGeneratedPanelLayout: !!generatedPanelLayout,
+      hasPlacedPanels,
+      hasPlacementAreas: activePlacementAreas.length > 0,
+      isDrawingPlacementArea: isDrawingPlacementArea && currentStep === 5,
+    }),
+    [
+      currentStep,
+      usePlacementAreaPanelWorkflow,
+      generatedPanelLayout,
+      hasPlacedPanels,
+      activePlacementAreas.length,
+      isDrawingPlacementArea,
+    ],
+  );
+
+  const measurementStepVisibility = useMemo(
+    () => getMeasurementVisibility(
+      currentStep,
+      currentStep === 9 ? presentationLayers : null,
+    ),
+    [currentStep, presentationLayers],
+  );
+
+  const showPlacementAreasInWorkspace = useMemo(
+    () => resolvePlacementAreasVisible(
+      workspaceVisibility.placementAreas,
+      workspaceVisibility.isPresentation,
+      currentStep === 9 ? presentationLayers : null,
+    ),
+    [
+      workspaceVisibility.placementAreas,
+      workspaceVisibility.isPresentation,
+      currentStep,
+      presentationLayers,
+    ],
+  );
 
   const locationSpecificYield = useMemo(
     () => computeLocationSpecificYield(solarResource),
@@ -1988,7 +2029,7 @@ export default function DesignStudio() {
                   </button>
                 ))}
                 </div>
-                {currentStep >= 2 && currentStep <= 6 && (
+                {workspaceVisibility.showDimensionsToggle && (
                   <ShowDimensionsControl
                     checked={showDimensions}
                     onChange={setShowDimensions}
@@ -2017,6 +2058,7 @@ export default function DesignStudio() {
               panelResizeTick={mapResizeTick}
               roofDetected={roofDetected}
               showDimensions={showDimensions}
+              measurementStepVisibility={measurementStepVisibility}
               roofEditLive={roofEditLive}
               measureEditRoof={roofMeasureEditing}
               onRoofMeasureEditChange={setRoofMeasureEditing}
@@ -2057,7 +2099,7 @@ export default function DesignStudio() {
                 placementAreaEditMode={placementAreaEditMode}
                 onSetPlacementAreaEditMode={setPlacementAreaEditMode}
                 onCommitPlacementAreaPolygon={handleCommitSelectedPlacementAreaPolygon}
-                showPlacementAreas={currentStep === 5 || currentStep === 6}
+                showPlacementAreas={showPlacementAreasInWorkspace}
                 shadowRunToken={shadowRunToken}
                 shadowResult={shadowResult}
                 shadowDay={simDay}
@@ -2078,13 +2120,18 @@ export default function DesignStudio() {
                 onCancelBizDraw={stopBizDrawing}
                 selectedBizZoneId={selectedBizZoneId}
                 onSelectBizZone={setSelectedBizZoneId}
-                showBizZones={currentStep === 5 || currentStep === 6}
-                showPlacedPanels={showPlacedPanelsInWorkspace}
+                showBizZones={workspaceVisibility.businessZones}
+                showPlacedPanels={workspaceVisibility.placedPanels}
                 placedPanels={renderedPlacedPanels}
                 panelVisualContext={panelVisualContext}
-                ghostPanelSlots={currentStep === 6 && panelEditMode === "add" ? renderedGhostSlots : []}
-                zonesDimmed={currentStep === 6}
-                panelsInteractive={currentStep === 6 || currentStep === 9}
+                ghostPanelSlots={
+                  workspaceVisibility.ghostPanelSlots && panelEditMode === "add"
+                    ? renderedGhostSlots
+                    : []
+                }
+                zonesDimmed={workspaceVisibility.zonesDimmed}
+                panelsInteractive={workspaceVisibility.panelEditing || currentStep === 9}
+                showPanelEditToolbar={workspaceVisibility.panelEditToolbar}
                 presentationMode={currentStep === 9}
                 presentationLayers={currentStep === 9 ? presentationLayers : null}
                 panelEditMode={panelEditMode}
@@ -2112,6 +2159,7 @@ export default function DesignStudio() {
                 onSetZoneEditMode={setZoneEditMode}
                 onCommitZonePolygon={handleCommitSelectedZonePolygon}
                 showDimensions={showDimensions}
+                measurementStepVisibility={measurementStepVisibility}
                 measureEditRoof={roofMeasureEditing}
               />
             </div>

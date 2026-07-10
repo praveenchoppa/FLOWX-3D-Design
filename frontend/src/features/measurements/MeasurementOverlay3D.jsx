@@ -7,13 +7,17 @@
  */
 
 import { useMemo } from "react";
+import { Html } from "@react-three/drei";
 
 import { computeDesignCenter } from "../view3d/roofGeometry3d";
 import CadDimensionAnnotation3D from "./CadDimensionAnnotation3D";
 import {
   CAD_CATEGORY,
   CAD_DIM_OFFSET_ROOF,
+  CAD_LABEL_BG,
+  CAD_LABEL_RADIUS,
   computePanelArrayFootprintVisual,
+  getCadCategoryStyle,
   roofCentroidSceneXZ,
   shouldShowCadObject,
 } from "./cadDimensionRenderer";
@@ -21,6 +25,7 @@ import {
   computeObstacleDimensions,
   computeRingAxisDimensions,
   computeRoofSectionDimensions,
+  formatMeasurement,
 } from "./measurementUtils";
 
 const PANEL_DECK_OFFSET_M = 0.14;
@@ -42,8 +47,55 @@ function panelArrayDeckY(panels, roofSections) {
   return (sec?.height ?? 3) + PANEL_DECK_OFFSET_M + PANEL_THICKNESS_M / 2 + DECK_SURFACE_EPS;
 }
 
+/** Permanent CAD-style height label above an obstacle (not a hover tooltip). */
+function ObstacleHeightLabel3D({ obstacle, roofSections, visible }) {
+  if (!visible || !obstacle) return null;
+
+  const sec = roofSections.find((s) => s.id === obstacle.roofId);
+  const baseY = sec ? Math.max(sec.height ?? 3, 0.15) + 0.02 : DECK_SURFACE_EPS;
+  const h = obstacle.height ?? 0;
+  const style = getCadCategoryStyle(CAD_CATEGORY.OBSTACLE);
+  const labelY = baseY + h + 0.38;
+
+  return (
+    <Html
+      position={[obstacle.position.x, labelY, obstacle.position.z]}
+      center
+      distanceFactor={12}
+      occlude={false}
+      zIndexRange={[100, 0]}
+      style={{ pointerEvents: "none" }}
+    >
+      <div
+        style={{
+          padding:        "5px 10px",
+          borderRadius:   `${CAD_LABEL_RADIUS}px`,
+          background:     CAD_LABEL_BG,
+          border:         `1px solid ${style.border}`,
+          backdropFilter: "blur(6px)",
+          WebkitBackdropFilter: "blur(6px)",
+          color:          style.text,
+          fontSize:       "11px",
+          fontWeight:     600,
+          fontFamily:     "ui-monospace, SFMono-Regular, Menlo, monospace",
+          textAlign:      "center",
+          lineHeight:     1.35,
+          whiteSpace:     "nowrap",
+          boxShadow:      "0 2px 10px rgba(0, 0, 0, 0.38)",
+        }}
+      >
+        <div style={{ color: "#F8FAFC", fontSize: "10px", marginBottom: 2 }}>
+          {obstacle.type ?? "Obstacle"}
+        </div>
+        <div>H: {formatMeasurement(h)}</div>
+      </div>
+    </Html>
+  );
+}
+
 export default function MeasurementOverlay3D({
   showDimensions      = false,
+  measurementStepVisibility = {},
   measureEdit         = {},
   roofSections        = [],
   selectedRoofId      = null,
@@ -57,6 +109,11 @@ export default function MeasurementOverlay3D({
   placedPanels        = [],
   roofSectionsForPanels = [],
 }) {
+  const allowRoof     = !!measurementStepVisibility.roof;
+  const allowObstacle = !!measurementStepVisibility.obstacle;
+  const allowZone     = !!measurementStepVisibility.zone;
+  const allowPanel    = !!measurementStepVisibility.panel;
+
   const designCentre = centre ?? computeDesignCenter(roofSections);
 
   const roofAnnotations = useMemo(() => {
@@ -144,7 +201,7 @@ export default function MeasurementOverlay3D({
   return (
     <>
       {roofAnnotations.map((ann) => (
-        shouldShowCadObject(showDimensions, ann.isEditing) ? (
+        allowRoof && shouldShowCadObject(showDimensions, ann.isEditing) ? (
           <CadDimensionAnnotation3D
             key={`roof-${ann.id}`}
             centerX={ann.centerX}
@@ -160,7 +217,7 @@ export default function MeasurementOverlay3D({
       ))}
 
       {obstacleAnnotations.map((ann) => (
-        shouldShowCadObject(showDimensions, ann.isEditing) ? (
+        allowObstacle && shouldShowCadObject(showDimensions, ann.isEditing) ? (
           <CadDimensionAnnotation3D
             key={`obs-${ann.id}`}
             centerX={ann.centerX}
@@ -174,7 +231,16 @@ export default function MeasurementOverlay3D({
         ) : null
       ))}
 
-      {panelArrayAnnotations.map((ann) => (
+      {obstacles.map((obs) => (
+        <ObstacleHeightLabel3D
+          key={`obs-h-${obs.id}`}
+          obstacle={obs}
+          roofSections={roofSections}
+          visible={allowObstacle && showDimensions}
+        />
+      ))}
+
+      {allowPanel && panelArrayAnnotations.map((ann) => (
         showDimensions ? (
           <CadDimensionAnnotation3D
             key={`array-${ann.id}`}
@@ -189,7 +255,7 @@ export default function MeasurementOverlay3D({
         ) : null
       ))}
 
-      {zoneAnnotation && shouldShowCadObject(showDimensions, zoneAnnotation.isEditing) && (
+      {allowZone && zoneAnnotation && shouldShowCadObject(showDimensions, zoneAnnotation.isEditing) && (
         <CadDimensionAnnotation3D
           key="zone-edit"
           centerX={zoneAnnotation.centerX}

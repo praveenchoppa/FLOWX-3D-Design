@@ -32,7 +32,7 @@ export default function GlobalSimulationTool({
 
   return (
     <div
-      className="absolute z-[1001] left-3 bottom-[68px] flex flex-col items-start gap-2 pointer-events-none"
+      className="absolute z-[1001] right-3 top-14 flex flex-col items-end gap-2 pointer-events-none"
       style={{ maxWidth: expanded ? 320 : undefined }}
     >
       {expanded && (

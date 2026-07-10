@@ -52,7 +52,7 @@ export default function PvModuleAssembly({
       position={[panel.center.x, deckY + ROOF_CONTACT_EPS, panel.center.z]}
       rotation={[-tiltRad, panel.rotation ?? 0, 0, "YXZ"]}
     >
-      <mesh geometry={geos.glass} material={glassMat} position={[0, stack.moduleCenterY, 0]} castShadow receiveShadow />
+      <mesh geometry={geos.glass} material={glassMat} position={[0, stack.moduleCenterY, 0]} castShadow receiveShadow userData={{ zoomFocusType: "panel" }} />
       <mesh geometry={geos.frameTop} material={materials.frame} position={[0, stack.frameCenterY, -hl + 0.024 / 2]} castShadow receiveShadow />
       <mesh geometry={geos.frameBottom} material={materials.frame} position={[0, stack.frameCenterY, hl - 0.024 / 2]} castShadow receiveShadow />
       <mesh geometry={geos.frameLeft} material={materials.frame} position={[-hw + 0.024 / 2, stack.frameCenterY, 0]} castShadow receiveShadow />
@@ -66,6 +66,7 @@ export default function PvModuleAssembly({
         material={materials.hit}
         position={[0, stack.moduleCenterY, 0]}
         renderOrder={10}
+        userData={{ zoomFocusType: "panel" }}
         onClick={onClick}
         onPointerDown={onPointerDown}
       />

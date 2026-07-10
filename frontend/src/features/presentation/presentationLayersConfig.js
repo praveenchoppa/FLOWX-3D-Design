@@ -11,6 +11,8 @@ export const DEFAULT_PRESENTATION_LAYERS = {
   heatmap:            false,
   zoneBoundaries:      false,
   businessZones:       false,
+  placementAreas:      false,
+  engineeringDimensions: false,
 };
 
 export const PRESENTATION_LAYER_TOGGLES = [
@@ -21,6 +23,8 @@ export const PRESENTATION_LAYER_TOGGLES = [
 ];
 
 export const ENGINEERING_LAYER_TOGGLES = [
+  { key: "engineeringDimensions", label: "Engineering Dimensions" },
+  { key: "placementAreas",        label: "Placement Areas" },
   { key: "solarSuitability", label: "Solar Suitability" },
   { key: "heatmap",          label: "Heatmap" },
   { key: "zoneBoundaries",    label: "Zone Boundaries" },

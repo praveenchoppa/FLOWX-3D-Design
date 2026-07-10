@@ -473,6 +473,7 @@ export default function MapView({
   panelResizeTick,
   roofDetected,
   showDimensions = false,
+  measurementStepVisibility = {},
   roofEditLive = null,
   measureEditRoof = false,
   onRoofMeasureEditChange = () => {},
@@ -569,6 +570,7 @@ export default function MapView({
         {!view3D && (
           <MeasurementOverlay2D
             showDimensions={showDimensions}
+            measurementStepVisibility={measurementStepVisibility}
             roofSections={roofSections}
             selectedRoofId={selectedRoofId}
             roofEditLive={roofEditLive}

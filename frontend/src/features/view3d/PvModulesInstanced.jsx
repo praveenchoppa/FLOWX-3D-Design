@@ -48,7 +48,10 @@ function InstancedPartLayer({ partKey, count, geometry, material, matrices }) {
     if (!mesh || !matrices?.length) return;
     matrices.forEach((m, i) => mesh.setMatrixAt(i, m));
     mesh.instanceMatrix.needsUpdate = true;
-  }, [matrices]);
+    if (partKey === "glass") {
+      mesh.userData.zoomFocusType = "panel";
+    }
+  }, [matrices, partKey]);
 
   if (!count || !geometry) return null;
 
