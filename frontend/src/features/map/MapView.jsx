@@ -430,18 +430,30 @@ function GeomanDrawing({
 
 // ── Project Status card helper ────────────────────────────────────────────
 
-function StatusRow({ label, ok, sub }) {
+function StatusRow({ label, ok, sub, isCurrent = false }) {
   return (
-    <div className="flex items-start gap-2">
+    <div className="flex items-start gap-2.5">
       {ok ? (
-        <HiCheckCircle className="text-[#00E38C] mt-0.5 shrink-0" size={14} />
+        <HiCheckCircle
+          className="text-[#00E38C] mt-0.5 shrink-0 drop-shadow-[0_0_6px_rgba(0,227,140,0.35)]"
+          size={14}
+        />
+      ) : isCurrent ? (
+        <div
+          className="w-3.5 h-3.5 rounded-full border-2 border-[#4F8CFF] bg-[#4F8CFF]/12 shrink-0 mt-0.5 shadow-[0_0_8px_rgba(79,140,255,0.3)]"
+          aria-hidden
+        />
       ) : (
-        <div className="w-3.5 h-3.5 rounded-full border-[1.5px] border-[#23324A] shrink-0 mt-0.5" />
+        <div className="w-3.5 h-3.5 rounded-full border-[1.5px] border-[#475569]/55 shrink-0 mt-0.5 bg-[#101B2D]/40" />
       )}
-      <div className="leading-none">
-        <span className="text-[11px] text-[#F8FAFC]">{label}</span>
+      <div className="leading-snug min-w-0">
+        <span className={`text-[11px] ${ok ? "text-[#F8FAFC]" : isCurrent ? "text-[#F8FAFC]" : "text-[#94A3B8]"}`}>
+          {label}
+        </span>
         {sub && (
-          <span className="text-[10px] text-[#94A3B8] ml-1.5">{sub}</span>
+          <span className={`text-[10px] ml-1.5 ${ok ? "text-[#00E38C]/90" : "text-[#64748B]"}`}>
+            {sub}
+          </span>
         )}
       </div>
     </div>
@@ -582,16 +594,25 @@ export default function MapView({
       {/* ── Project Status card — Step 1 only (onboarding element).
            Hidden on Steps 2+ to clear the top-left for the view toggle. */}
       {currentStep === 1 && (
-        <div className="absolute top-4 left-4 z-[1000] w-[210px] px-4 py-3.5 rounded-[14px] bg-[rgba(16,27,45,0.88)] backdrop-blur-xl border border-[#23324A] shadow-[0_4px_20px_rgba(0,0,0,0.4)]">
+        <div
+          className="
+            absolute top-4 left-4 z-[1000] w-[210px]
+            px-4 py-3.5 rounded-[14px]
+            bg-[rgba(16,27,45,0.82)] backdrop-blur-xl
+            border border-[#23324A]/85
+            shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_28px_rgba(0,0,0,0.42)]
+          "
+        >
           <p className="text-[9px] font-bold tracking-[0.2em] text-[#94A3B8] uppercase mb-3">
             Project Status
           </p>
-          <div className="flex flex-col gap-2.5">
-            <StatusRow label="Location Selected"     ok={hasLocation} />
+          <div className="flex flex-col gap-3">
+            <StatusRow label="Location Selected"     ok={hasLocation} isCurrent={!hasLocation} />
             <StatusRow label="Coordinates Available" ok={hasLocation} />
             <StatusRow
               label="Roof Boundary"
               ok={roofCreated}
+              isCurrent={hasLocation && !roofCreated}
               sub={roofCreated ? "Created" : "Not Created"}
             />
           </div>

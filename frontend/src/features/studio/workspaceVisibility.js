@@ -11,10 +11,11 @@ export const WIZARD_STEP = /** @type {const} */ ({
   SIMULATION:    4,
   ZONES:         5,
   PANELS:        6,
-  ENERGY:        7,
-  FINANCIALS:    8,
-  VISUALIZATION: 9,
-  PROJECT:       10,
+  ELECTRICAL:    7,
+  ENERGY:        8,
+  FINANCIALS:    9,
+  VISUALIZATION: 10,
+  PROJECT:       11,
 });
 
 /**
@@ -84,7 +85,7 @@ export function getMeasurementVisibility(currentStep, presentationLayers = null)
 }
 
 /**
- * Whether placement area polygons may render (Step 9 defers to Presentation Layers).
+ * Whether placement area polygons may render (Visualization step defers to Presentation Layers).
  *
  * @param {boolean} workspaceAllows
  * @param {boolean} isPresentation

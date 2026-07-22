@@ -113,8 +113,10 @@ import {
 } from "../../features/panels/panelCapacitySelection";
 
 // ── Panel resize constants ─────────────────────────────────────────────────────
-const MIN_PANEL_W = 360;   // default width — can't go narrower
-const MAX_PANEL_W = 560;   // max drag-wider limit
+const MIN_PANEL_W         = 360;  // minimum drag width
+const MAX_PANEL_W         = 640;  // maximum drag width (panel chrome can exceed content)
+const MAX_PANEL_CONTENT_W = 480;  // content stops stretching; extra width becomes side gutter
+const COLLAPSED_PANEL_W   = 14;   // slim handle strip when collapsed
 
 import HeaderBar    from "../../components/HeaderBar";
 import MapView      from "../../features/map/MapView";
@@ -128,6 +130,7 @@ import { loadProjectMeta, saveProjectMeta } from "../../features/project/project
 import StepWizard   from "../../components/StepWizard";
 import { UpdateDesignFloatingBar } from "../../features/steps/panelUtils";
 import { STEP_CONFIG } from "../../config/stepConfig";
+import { WIZARD_STEP } from "../../features/studio/workspaceVisibility";
 import { computeUsableArea } from "../../utils/roofGeometry";
 import { OBSTACLE_LIBRARY, createObstacle } from "../../features/obstacles/obstacleTypes";
 
@@ -135,7 +138,7 @@ export default function DesignStudio() {
   // ── Location ──────────────────────────────────────────────────────────────
   const [location, setLocation] = useState({ address: "", lat: null, lng: null });
 
-  // ── Project meta (header name + Step 10 CRM placeholders) — single source ─
+  // ── Project meta (header name + Step 11 local persistence) — single source ─
   const [projectMeta, setProjectMeta] = useState(() => loadProjectMeta());
   const patchProjectMeta = useCallback((patch) => {
     setProjectMeta((prev) => saveProjectMeta({ ...prev, ...patch }));
@@ -160,7 +163,7 @@ export default function DesignStudio() {
   const [roofDetected,   setRoofDetected]   = useState(false); // placeholder for Google Solar API
 
   // ── Step controller ───────────────────────────────────────────────────────
-  // currentStep:     1-indexed (1–10), mirrors STEP_CONFIG positions.
+  // currentStep:     1-indexed (1–11), mirrors STEP_CONFIG positions.
   // maxUnlockedStep: furthest step legitimately reached; controls wizard clicks.
   const [currentStep,      setCurrentStep]      = useState(1);
   const [maxUnlockedStep,  setMaxUnlockedStep]   = useState(1);
@@ -221,6 +224,19 @@ export default function DesignStudio() {
     document.addEventListener("mouseup",   onUp);
   }, [panelWidth]);
 
+  const handlePanelTransitionEnd = useCallback((e) => {
+    if (e.propertyName !== "width") return;
+    setMapResizeTick((t) => t + 1);
+  }, []);
+
+  const handleCollapsePanel = useCallback(() => {
+    setPanelCollapsed(true);
+  }, []);
+
+  const handleExpandPanel = useCallback(() => {
+    setPanelCollapsed(false);
+  }, []);
+
   // ── 2D / 3D view toggle ───────────────────────────────────────────────────
   // false = 2D Leaflet map (default); true = Three.js 3D workspace.
   // Gated: 3D is only enabled once at least one roof section exists.
@@ -255,7 +271,7 @@ export default function DesignStudio() {
   const [simSpeed,   setSimSpeed]   = useState(1); // 1× | 2× | 5×
   const [simToolExpanded, setSimToolExpanded] = useState(false);
 
-  // ── Step 9 presentation layer visibility (display only) ─────────────────
+  // ── Step 10 presentation layer visibility (display only) ─────────────────
   const [presentationLayers, setPresentationLayers] = useState(DEFAULT_PRESENTATION_LAYERS);
   const [layersPanelExpanded, setLayersPanelExpanded] = useState(false);
 
@@ -393,9 +409,9 @@ export default function DesignStudio() {
     prevStepRef.current = currentStep;
   }, [currentStep, roofSections.length]);
 
-  // Reset Step 9 presentation layer defaults on each visit.
+  // Reset Step 10 presentation layer defaults on each visit.
   useEffect(() => {
-    if (currentStep === 9) {
+    if (currentStep === WIZARD_STEP.VISUALIZATION) {
       setPresentationLayers(DEFAULT_PRESENTATION_LAYERS);
       setLayersPanelExpanded(false);
     }
@@ -797,7 +813,7 @@ export default function DesignStudio() {
   const measurementStepVisibility = useMemo(
     () => getMeasurementVisibility(
       currentStep,
-      currentStep === 9 ? presentationLayers : null,
+      currentStep === WIZARD_STEP.VISUALIZATION ? presentationLayers : null,
     ),
     [currentStep, presentationLayers],
   );
@@ -806,7 +822,7 @@ export default function DesignStudio() {
     () => resolvePlacementAreasVisible(
       workspaceVisibility.placementAreas,
       workspaceVisibility.isPresentation,
-      currentStep === 9 ? presentationLayers : null,
+      currentStep === WIZARD_STEP.VISUALIZATION ? presentationLayers : null,
     ),
     [
       workspaceVisibility.placementAreas,
@@ -1187,7 +1203,7 @@ export default function DesignStudio() {
   ]);
 
   const handleSelectPanelSlot = useCallback((slotId) => {
-    if (currentStep === 9) {
+    if (currentStep === WIZARD_STEP.VISUALIZATION) {
       const panel = renderedPlacedPanels.find(
         (p) => (p.slotId ?? p.id) === slotId,
       );
@@ -1204,13 +1220,13 @@ export default function DesignStudio() {
   const panelCanUndo = canUndoPanelEdit(panelEditHistory);
   const panelCanRedo = canRedoPanelEdit(panelEditHistory);
 
-  // Reset edit UI when leaving Step 6 (array selection persists for Step 9 presentation).
+  // Reset edit UI when leaving Step 6 (array selection persists for Visualization).
   useEffect(() => {
     if (currentStep !== 6) {
       setSelectedPanelSlotId(null);
       setPanelEditMode("select");
     }
-    if (currentStep !== 6 && currentStep !== 9) {
+    if (currentStep !== 6 && currentStep !== WIZARD_STEP.VISUALIZATION) {
       setSelectedArrayId(null);
     }
   }, [currentStep]);
@@ -1947,7 +1963,7 @@ export default function DesignStudio() {
       />
 
       {/* ── Main content row ── */}
-      {currentStep === 10 ? (
+      {currentStep === WIZARD_STEP.PROJECT ? (
         <div className="flex-1 min-h-0 overflow-hidden">
           <ProjectWorkspace
             location={location}
@@ -1967,7 +1983,7 @@ export default function DesignStudio() {
           />
         </div>
       ) : (
-      <div className="flex-1 min-h-0 flex gap-3 p-3">
+      <div className="relative z-0 flex-1 min-h-0 flex gap-3 p-3">
 
         {/* ── Left — map / 3D workspace ────────────────────────────────────── */}
         <div className="flex-1 min-h-0 relative">
@@ -1975,7 +1991,7 @@ export default function DesignStudio() {
           {/* View segmented control — workspace toolbar (Steps 2–10).
               Three segments: 2D (Leaflet map) · 3D (perspective) · Top (bird's-eye).
               3D and Top are gated on at least one roof section. View persists across steps. */}
-          {currentStep >= 2 && currentStep <= 10 && (() => {
+          {currentStep >= WIZARD_STEP.ROOF && currentStep <= WIZARD_STEP.VISUALIZATION && (() => {
             const hasRoof = roofSections.length > 0;
             const SEGMENTS = [
               {
@@ -2075,7 +2091,7 @@ export default function DesignStudio() {
                 selectedRoofId={selectedRoofId}
                 obstacles={obstacles}
                 obstaclesEnabled={currentStep === 3}
-                showObstacles={currentStep >= 3 && currentStep <= 9}
+                showObstacles={currentStep >= WIZARD_STEP.OBSTACLES && currentStep <= WIZARD_STEP.VISUALIZATION}
                 placingObstacleType={placingObstacleType}
                 selectedObstacleId={selectedObstacleId}
                 gizmoMode={gizmoMode}
@@ -2130,10 +2146,10 @@ export default function DesignStudio() {
                     : []
                 }
                 zonesDimmed={workspaceVisibility.zonesDimmed}
-                panelsInteractive={workspaceVisibility.panelEditing || currentStep === 9}
+                panelsInteractive={workspaceVisibility.panelEditing || currentStep === WIZARD_STEP.VISUALIZATION}
                 showPanelEditToolbar={workspaceVisibility.panelEditToolbar}
-                presentationMode={currentStep === 9}
-                presentationLayers={currentStep === 9 ? presentationLayers : null}
+                presentationMode={currentStep === WIZARD_STEP.VISUALIZATION}
+                presentationLayers={currentStep === WIZARD_STEP.VISUALIZATION ? presentationLayers : null}
                 panelEditMode={panelEditMode}
                 onSetPanelEditMode={handleSetPanelEditMode}
                 selectedPanelSlotId={selectedPanelSlotId}
@@ -2187,7 +2203,7 @@ export default function DesignStudio() {
             />
           )}
 
-          {currentStep === 9 && (
+          {currentStep === WIZARD_STEP.VISUALIZATION && (
             <PresentationLayersControl
               expanded={layersPanelExpanded}
               onToggleExpanded={setLayersPanelExpanded}
@@ -2205,66 +2221,68 @@ export default function DesignStudio() {
 
         {/* ── Right — collapsible + drag-resizable step panel ─────────────── */}
         {/*
-          Outer wrapper: transitions width panelWidth ↔ 0 (collapse/expand).
-          overflow-hidden clips the inner content as it slides out.
-          Width is an inline style so drag-resize can update it without Tailwind.
-          The CSS transition-[width] is disabled imperatively during drag to
-          avoid per-pixel animation lag, then re-enabled after the drag ends.
+          Outer wrapper: width transitions between panelWidth and a slim handle
+          strip (COLLAPSED_PANEL_W). panelWidth is preserved while collapsed so
+          expand restores the previous size. overflow-hidden clips content as
+          the shell narrows. Content inside is capped at MAX_PANEL_CONTENT_W and
+          centered when the panel chrome is wider than necessary.
         */}
         <div
           ref={panelOuterRef}
           className="relative shrink-0 h-full overflow-hidden transition-[width] ease-in-out duration-200"
-          style={{ width: panelCollapsed ? 0 : panelWidth }}
+          style={{ width: panelCollapsed ? COLLAPSED_PANEL_W : panelWidth }}
+          onTransitionEnd={handlePanelTransitionEnd}
         >
-          {/* Drag-resize handle — thin strip on the left edge.
-              12px hit area; 3px visible indicator on hover.
-              Dragging left widens the panel; right narrows it back. */}
-          {!panelCollapsed && (
-            <div
-              className="absolute left-0 top-0 bottom-0 z-[2001] w-3 cursor-col-resize group"
-              onMouseDown={handleDragStart}
-              title="Drag to resize panel"
-            >
-              <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-transparent group-hover:bg-[#4F8CFF]/25 transition-colors duration-150 rounded-r-sm" />
-            </div>
-          )}
-
-          {/* Collapse chevron — sits at the same level as the panel header "Ready" pill.
-              Positioned via the outer wrapper (absolute), so zero panel files are touched. */}
-          {!panelCollapsed && (
+          {panelCollapsed && (
             <button
-              onClick={() => setPanelCollapsed(true)}
-              className="absolute top-[22px] right-[22px] z-[2000] w-6 h-6 rounded-lg flex items-center justify-center bg-[rgba(7,17,32,0.65)] border border-[#23324A] text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-[#162338] transition-all duration-150"
-              title="Collapse panel"
+              type="button"
+              onClick={handleExpandPanel}
+              className="absolute inset-0 z-[2002] flex items-center justify-center bg-[rgba(16,27,45,0.92)] border-l border-[#23324A] text-[#94A3B8] hover:text-[#4F8CFF] hover:bg-[#162338] transition-colors duration-150 cursor-pointer"
+              title="Expand panel"
+              aria-label="Expand panel"
             >
-              <HiChevronRight size={11} />
+              <HiChevronLeft size={12} />
             </button>
           )}
 
-          {/* Inner content: translateX 0 ↔ 100% gives the visual slide effect.
-              Width matches panelWidth so translate(100%) always slides fully off.
-              Content never reflows while the outer is transitioning (overflow-hidden). */}
+          {!panelCollapsed && (
+            <>
+              <div
+                className="absolute left-0 top-0 bottom-0 z-[2001] w-3 cursor-col-resize group"
+                onMouseDown={handleDragStart}
+                title="Drag to resize panel"
+              >
+                <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-transparent group-hover:bg-[#4F8CFF]/25 transition-colors duration-150 rounded-r-sm" />
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCollapsePanel}
+                className="absolute top-[22px] right-[22px] z-[2000] w-6 h-6 rounded-lg flex items-center justify-center bg-[rgba(7,17,32,0.65)] border border-[#23324A] text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-[#162338] transition-all duration-150"
+                title="Collapse panel"
+                aria-label="Collapse panel"
+              >
+                <HiChevronRight size={11} />
+              </button>
+            </>
+          )}
+
           <div
-            className={`h-full transition-transform ease-in-out duration-200 ${
-              panelCollapsed ? "translate-x-full" : "translate-x-0"
+            className={`h-full flex justify-center overflow-hidden ${
+              panelCollapsed ? "invisible pointer-events-none" : ""
             }`}
             style={{ width: panelWidth }}
+            aria-hidden={panelCollapsed}
           >
-            <PanelComponent {...panelProps} />
+            <div
+              className="h-full w-full min-w-0"
+              style={{ maxWidth: MAX_PANEL_CONTENT_W }}
+            >
+              <PanelComponent {...panelProps} />
+            </div>
           </div>
         </div>
       </div>
-      )}
-
-      {/* ── Floating reopen tab — pinned to right viewport edge when collapsed ── */}
-      {panelCollapsed && currentStep !== 10 && (
-        <button
-          onClick={() => setPanelCollapsed(false)}
-          className="fixed right-0 top-1/2 -translate-y-1/2 z-[2000] h-14 w-7 rounded-l-xl bg-[rgba(16,27,45,0.92)] backdrop-blur-xl border border-r-0 border-[#23324A] flex items-center justify-center text-[#94A3B8] hover:text-[#4F8CFF] hover:bg-[#162338] transition-all duration-150"
-          title="Show panel"
-        >
-          <HiChevronLeft size={14} />
-        </button>
       )}
 
       {/* ── Bottom workflow bar ── */}

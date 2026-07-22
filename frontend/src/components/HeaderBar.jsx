@@ -16,10 +16,10 @@ export default function HeaderBar({
   const workspaceLabel = getHeaderWorkspaceLabel(currentStep);
 
   return (
-    <header className="h-[52px] shrink-0 flex items-center justify-between px-5 border-b border-[#23324A] bg-[#101B2D] z-50">
+    <header className="relative z-[100] min-h-[56px] shrink-0 flex items-center justify-between gap-4 px-5 py-2.5 border-b border-[#23324A] bg-[#101B2D] overflow-visible">
 
       {/* ── Left: Logo + project name ── */}
-      <div className="flex items-center gap-5 min-w-0">
+      <div className="flex items-center gap-5 min-w-0 shrink-0">
         <div className="flex items-center gap-2.5 cursor-default select-none shrink-0">
           <div className="w-7 h-7 rounded-lg bg-[#4F8CFF] flex items-center justify-center shadow-[0_0_12px_rgba(79,140,255,0.4)]">
             <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
@@ -58,10 +58,12 @@ export default function HeaderBar({
       </div>
 
       {/* ── Center: Search ── */}
-      <SearchBar setLocation={setLocation} />
+      <div className="flex-1 flex justify-center px-3 sm:px-6 min-w-0 overflow-visible">
+        <SearchBar setLocation={setLocation} />
+      </div>
 
       {/* ── Right: step status + notifications ── */}
-      <div className="flex items-center gap-4 shrink-0">
+      <div className="flex items-center gap-4 shrink-0 pl-1">
         <div className="flex items-center gap-1.5 select-none">
           <div className="w-2 h-2 rounded-full bg-[#00E38C] shadow-[0_0_6px_rgba(0,227,140,0.5)]" />
           <span className="text-xs text-[#94A3B8] whitespace-nowrap">{statusLabel}</span>

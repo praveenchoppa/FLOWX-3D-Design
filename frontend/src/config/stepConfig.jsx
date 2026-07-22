@@ -1,5 +1,5 @@
 /**
- * STEP_CONFIG — single source of truth for the 10-step wizard.
+ * STEP_CONFIG — single source of truth for the 11-step wizard.
  *
  * Each entry declares:
  *   step       — 1-indexed step number
@@ -7,22 +7,23 @@
  *   Panel      — React component rendered in the right-hand panel for this step
  *   isComplete — predicate(appState) → boolean; Next is enabled only when true
  *
- * Built steps enforce real predicates; unbuilt steps (3–10) use () => true so
+ * Built steps enforce real predicates; unbuilt steps use () => true so
  * the skeleton is fully navigable during development. Update the predicate and
  * swap the Panel when a step is implemented.
  *
  * Adding a new step = adding one object here. Zero changes elsewhere.
  */
-import LocationPanel    from "../features/steps/LocationPanel";
-import RoofPanel        from "../features/steps/RoofPanel";
-import ObstaclePanel    from "../features/steps/ObstaclePanel";
-import SimulationPanel  from "../features/steps/SimulationPanel";
-import ZonesPanel       from "../features/steps/ZonesPanel";
-import PanelsPanel      from "../features/steps/PanelsPanel";
-import EnergyPanel      from "../features/steps/EnergyPanel";
-import FinancialsPanel  from "../features/steps/FinancialsPanel";
-import PresentationPanel from "../features/steps/PresentationPanel";
-import PlaceholderPanel from "../features/steps/PlaceholderPanel";
+import LocationPanel       from "../features/steps/LocationPanel";
+import RoofPanel           from "../features/steps/RoofPanel";
+import ObstaclePanel       from "../features/steps/ObstaclePanel";
+import SimulationPanel     from "../features/steps/SimulationPanel";
+import ZonesPanel          from "../features/steps/ZonesPanel";
+import PanelsPanel         from "../features/steps/PanelsPanel";
+import ElectricalDesign    from "../features/ElectricalDesign/ElectricalDesign";
+import EnergyPanel         from "../features/steps/EnergyPanel";
+import FinancialsPanel     from "../features/steps/FinancialsPanel";
+import PresentationPanel   from "../features/steps/PresentationPanel";
+import PlaceholderPanel    from "../features/steps/PlaceholderPanel";
 
 export const STEP_CONFIG = [
   {
@@ -53,12 +54,11 @@ export const STEP_CONFIG = [
     // Simulation is exploratory — always passable.
     isComplete: () => true,
   },
-  // ── Steps 5–10: not yet implemented ───────────────────────────────────────
-  // Replace Panel + isComplete once the step spec is finalised.
-  { step: 5,  label: "Zones",         Panel: ZonesPanel,       isComplete: () => true },
-  { step: 6,  label: "Panels",        Panel: PanelsPanel,      isComplete: () => true },
-  { step: 7,  label: "Energy",        Panel: EnergyPanel,      isComplete: () => true },
-  { step: 8,  label: "Financials",    Panel: FinancialsPanel,  isComplete: () => true },
-  { step: 9,  label: "Visualization", Panel: PresentationPanel, isComplete: () => true },
-  { step: 10, label: "Project",         Panel: PlaceholderPanel, isComplete: () => true },
+  { step: 5,  label: "Zones",            Panel: ZonesPanel,        isComplete: () => true },
+  { step: 6,  label: "Panels",           Panel: PanelsPanel,       isComplete: () => true },
+  { step: 7,  label: "Electrical Design", Panel: ElectricalDesign, isComplete: () => true },
+  { step: 8,  label: "Energy",           Panel: EnergyPanel,       isComplete: () => true },
+  { step: 9,  label: "Financials",       Panel: FinancialsPanel,   isComplete: () => true },
+  { step: 10, label: "Visualization",    Panel: PresentationPanel, isComplete: () => true },
+  { step: 11, label: "Project Summary",  Panel: PlaceholderPanel,  isComplete: () => true },
 ];

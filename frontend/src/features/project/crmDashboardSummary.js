@@ -1,5 +1,5 @@
 /**
- * crmDashboardSummary.js — Step 10 read-only dashboard aggregation (pure).
+ * crmDashboardSummary.js — Step 10 Project Summary read-only aggregation (pure).
  *
  * Maps existing derived results to display fields. No calculations.
  */
