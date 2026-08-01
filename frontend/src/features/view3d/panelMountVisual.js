@@ -6,7 +6,7 @@
  */
 
 import {
-  resolveEffectivePanelConfig,
+  resolvePlacementAreaConfig,
   DEFAULT_PROJECT_PANEL_DEFAULTS,
 } from "../panels/panelConfig.js";
 
@@ -20,12 +20,11 @@ export const FRAME_DEPTH = 0.037;
 export const GLASS_THICKNESS = 0.004;
 export const RAIL_H = 0.034;
 
-export function buildRegionMountVisualMap(projectPanelDefaults, placementAreas = []) {
+export function buildRegionMountVisualMap(_projectPanelDefaults, placementAreas = []) {
   const map = new Map();
-  const defaults = projectPanelDefaults ?? DEFAULT_PROJECT_PANEL_DEFAULTS;
 
   for (const area of placementAreas.filter((a) => !a?.deleted)) {
-    const cfg = resolveEffectivePanelConfig(defaults, area.panelProperties);
+    const cfg = resolvePlacementAreaConfig(area.panelProperties);
     map.set(area.id, {
       tilt:        Number(cfg.tilt) || 0,
       mountHeight: Math.max(0, Number(cfg.mountHeight) || 0),

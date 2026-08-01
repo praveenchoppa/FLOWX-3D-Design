@@ -36,12 +36,108 @@ function raycastRoofXZ(clientX, clientY, camera, canvas, deckY) {
   return { x: hit.x, z: hit.z };
 }
 
+function panelInArrayHighlight(panel, slotId, arrayHighlightRegionId, highlightPanelIdSet) {
+  if (highlightPanelIdSet?.size) {
+    return highlightPanelIdSet.has(slotId);
+  }
+  return !!arrayHighlightRegionId && panel.regionId === arrayHighlightRegionId;
+}
+
+function PlacedPanelsElectricalPick({
+  panels,
+  deckYMap,
+  panelVisualContext,
+  activeArrayPanelIdSet,
+  selectedElectricalPanelIds = [],
+  stringHighlightPanelIds = [],
+  arrayHighlightRegionId,
+  arrayHighlightPanelIds = null,
+  dimInactiveArrays = false,
+  onElectricalSelectPanel = () => {},
+}) {
+  const regionMap = panelVisualContext?.regionMap;
+
+  const highlightPanelIdSet = useMemo(() => {
+    if (!arrayHighlightPanelIds?.length) return null;
+    return new Set(arrayHighlightPanelIds);
+  }, [arrayHighlightPanelIds]);
+
+  const electricalSelectedSet = useMemo(
+    () => new Set(selectedElectricalPanelIds),
+    [selectedElectricalPanelIds],
+  );
+
+  const stringHighlightSet = useMemo(
+    () => (stringHighlightPanelIds?.length ? new Set(stringHighlightPanelIds) : null),
+    [stringHighlightPanelIds],
+  );
+
+  const hasStringSelection = !!stringHighlightSet?.size;
+
+  const hasArrayHighlight = !hasStringSelection
+    && (!!highlightPanelIdSet?.size || !!arrayHighlightRegionId);
+
+  return (
+    <>
+      <PvMountRows
+        panels={panels}
+        deckYMap={deckYMap}
+        panelVisualContext={panelVisualContext}
+      />
+      {panels.map((panel) => {
+        const slotId = panel.slotId ?? panel.id;
+        const deckY = deckYMap[panel.roofId] ?? 3.02;
+        const inActiveArray = activeArrayPanelIdSet?.has(slotId) ?? false;
+        const inArrayHighlight = !hasStringSelection && panelInArrayHighlight(
+          panel,
+          slotId,
+          arrayHighlightRegionId,
+          highlightPanelIdSet,
+        );
+        const isElectricallySelected = electricalSelectedSet.has(slotId);
+        const isStringMember = stringHighlightSet?.has(slotId) ?? false;
+        const isStringHighlighted = isStringMember;
+        const isDimmed = hasStringSelection
+          ? !isStringMember
+          : ((dimInactiveArrays && hasArrayHighlight && !inArrayHighlight)
+            || (!inActiveArray && !!activeArrayPanelIdSet?.size));
+
+        const mountVisual = resolvePanelMountVisual(
+          panel,
+          regionMap,
+          panelVisualContext?.projectPanelDefaults,
+        );
+
+        return (
+          <PvModuleAssembly
+            key={slotId}
+            panel={panel}
+            deckY={deckY}
+            mountVisual={mountVisual}
+            arrayHighlight={inArrayHighlight && !isElectricallySelected && !isStringHighlighted}
+            dimmed={isDimmed}
+            electricalSelected={isElectricallySelected}
+            stringMemberHighlight={isStringHighlighted}
+            onClick={inActiveArray
+              ? (e) => {
+                e.stopPropagation();
+                onElectricalSelectPanel(slotId, { additive: e.ctrlKey || e.metaKey });
+              }
+              : undefined}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 function PlacedPanelsInteractive({
   panels,
   deckYMap,
   panelVisualContext,
   selectedSlotId,
   arrayHighlightRegionId,
+  arrayHighlightPanelIds = null,
   dimInactiveArrays = false,
   onSelectPanel,
   enableMoveDrag = false,
@@ -58,6 +154,13 @@ function PlacedPanelsInteractive({
   const snapPreviewRef = useRef(null);
 
   const regionMap = panelVisualContext?.regionMap;
+
+  const highlightPanelIdSet = useMemo(() => {
+    if (!arrayHighlightPanelIds?.length) return null;
+    return new Set(arrayHighlightPanelIds);
+  }, [arrayHighlightPanelIds]);
+
+  const hasArrayHighlight = !!highlightPanelIdSet?.size || !!arrayHighlightRegionId;
 
   const selectedPanel = panels.find((p) => (p.slotId ?? p.id) === selectedSlotId);
   const dragDeckY = selectedPanel ? (deckYMap[selectedPanel.roofId] ?? 3.02) : 3.02;
@@ -142,10 +245,9 @@ function PlacedPanelsInteractive({
         const deckY = deckYMap[panel.roofId] ?? 3.02;
         const isSelected = slotId === selectedSlotId;
         const inArrayHighlight = !isSelected
-          && arrayHighlightRegionId
-          && panel.regionId === arrayHighlightRegionId;
+          && panelInArrayHighlight(panel, slotId, arrayHighlightRegionId, highlightPanelIdSet);
         const isDimmed = dimInactiveArrays
-          && arrayHighlightRegionId
+          && hasArrayHighlight
           && !isSelected
           && !inArrayHighlight;
 
@@ -188,10 +290,25 @@ function PlacedPanelsInteractive({
   );
 }
 
-function PlacedPanelsStatic({ panels, deckYMap, panelVisualContext, instanced }) {
+function PlacedPanelsStatic({
+  panels,
+  deckYMap,
+  panelVisualContext,
+  instanced,
+  arrayHighlightRegionId = null,
+  arrayHighlightPanelIds = null,
+  dimInactiveArrays = false,
+}) {
   const regionMap = panelVisualContext?.regionMap;
 
-  if (instanced) {
+  const highlightPanelIdSet = useMemo(() => {
+    if (!arrayHighlightPanelIds?.length) return null;
+    return new Set(arrayHighlightPanelIds);
+  }, [arrayHighlightPanelIds]);
+
+  const hasArrayHighlight = !!highlightPanelIdSet?.size || !!arrayHighlightRegionId;
+
+  if (instanced && !hasArrayHighlight) {
     return (
       <PvModulesInstanced
         panels={panels}
@@ -209,7 +326,15 @@ function PlacedPanelsStatic({ panels, deckYMap, panelVisualContext, instanced })
         panelVisualContext={panelVisualContext}
       />
       {panels.map((panel) => {
+        const slotId = panel.slotId ?? panel.id;
         const deckY = deckYMap[panel.roofId] ?? 3.02;
+        const inArrayHighlight = panelInArrayHighlight(
+          panel,
+          slotId,
+          arrayHighlightRegionId,
+          highlightPanelIdSet,
+        );
+        const isDimmed = dimInactiveArrays && hasArrayHighlight && !inArrayHighlight;
         const mountVisual = resolvePanelMountVisual(
           panel,
           regionMap,
@@ -217,10 +342,12 @@ function PlacedPanelsStatic({ panels, deckYMap, panelVisualContext, instanced })
         );
         return (
           <PvModuleAssembly
-            key={panel.id ?? panel.slotId}
+            key={slotId}
             panel={panel}
             deckY={deckY}
             mountVisual={mountVisual}
+            arrayHighlight={inArrayHighlight}
+            dimmed={isDimmed}
           />
         );
       })}
@@ -233,8 +360,14 @@ export default function PlacedPanels({
   roofSections           = [],
   panelVisualContext     = null,
   interactive            = false,
+  electricalPanelPicking = false,
+  activeArrayPanelIds    = null,
+  selectedElectricalPanelIds = [],
+  stringHighlightPanelIds = [],
+  onElectricalSelectPanel = () => {},
   selectedSlotId         = null,
   arrayHighlightRegionId = null,
+  arrayHighlightPanelIds = null,
   dimInactiveArrays      = false,
   onSelectPanel          = () => {},
   enableMoveDrag         = false,
@@ -250,6 +383,11 @@ export default function PlacedPanels({
 
   const deckYMap = useMemo(() => buildDeckYMap(roofSections), [roofSections]);
 
+  const activeArrayPanelIdSet = useMemo(() => {
+    if (!activeArrayPanelIds?.length) return null;
+    return new Set(activeArrayPanelIds);
+  }, [activeArrayPanelIds]);
+
   if (!panels.length) return null;
 
   if (interactive) {
@@ -260,6 +398,7 @@ export default function PlacedPanels({
         panelVisualContext={panelVisualContext}
         selectedSlotId={selectedSlotId}
         arrayHighlightRegionId={arrayHighlightRegionId}
+        arrayHighlightPanelIds={arrayHighlightPanelIds}
         dimInactiveArrays={dimInactiveArrays}
         onSelectPanel={onSelectPanel}
         enableMoveDrag={enableMoveDrag}
@@ -271,12 +410,32 @@ export default function PlacedPanels({
     );
   }
 
+  if (electricalPanelPicking) {
+    return (
+      <PlacedPanelsElectricalPick
+        panels={panels}
+        deckYMap={deckYMap}
+        panelVisualContext={panelVisualContext}
+        activeArrayPanelIdSet={activeArrayPanelIdSet}
+        selectedElectricalPanelIds={selectedElectricalPanelIds}
+        stringHighlightPanelIds={stringHighlightPanelIds}
+        arrayHighlightRegionId={arrayHighlightRegionId}
+        arrayHighlightPanelIds={arrayHighlightPanelIds}
+        dimInactiveArrays={dimInactiveArrays}
+        onElectricalSelectPanel={onElectricalSelectPanel}
+      />
+    );
+  }
+
   return (
     <PlacedPanelsStatic
       panels={panels}
       deckYMap={deckYMap}
       panelVisualContext={panelVisualContext}
       instanced={panels.length > INSTANCED_THRESHOLD}
+      arrayHighlightRegionId={arrayHighlightRegionId}
+      arrayHighlightPanelIds={arrayHighlightPanelIds}
+      dimInactiveArrays={dimInactiveArrays}
     />
   );
 }

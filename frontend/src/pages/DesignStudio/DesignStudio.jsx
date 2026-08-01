@@ -42,7 +42,10 @@ import {
   DEFAULT_PROJECT_PANEL_DEFAULTS,
   ORIENTATIONS,
   MOUNT_TYPES,
-  resolveEffectivePanelConfig,
+  resolvePlacementAreaConfig,
+  createPlacementAreaConfigFromTemplate,
+  migratePlacementAreas,
+  isLegacyPanelProperties,
   panelForPlacement,
   placementLayoutFingerprint,
 } from "../../features/panels/panelConfig";
@@ -93,6 +96,8 @@ import {
   canRedoPanelEdit,
   EMPTY_PANEL_OVERRIDES,
 } from "../../features/panels/panelEditorUtils";
+import { applyElectricalArrayRotations } from "../../features/ElectricalDesign/models/arrayRotation.js";
+import ArrayToolsToolbar from "../../features/ElectricalDesign/components/Canvas/ArrayToolsToolbar.jsx";
 import {
   validatePanelMove,
   validatePanelRotate,
@@ -316,6 +321,16 @@ export default function DesignStudio() {
   const [projectPanelDefaults, setProjectPanelDefaults] = useState(
     () => ({ ...DEFAULT_PROJECT_PANEL_DEFAULTS }),
   );
+
+  // Migrate legacy linked-defaults areas to owned configs (one-time per area).
+  useEffect(() => {
+    setPlacementAreas((prev) => {
+      if (!prev.some((a) => isLegacyPanelProperties(a.panelProperties))) return prev;
+      return migratePlacementAreas(prev, projectPanelDefaults);
+    });
+    // Intentionally omit projectPanelDefaults — template changes must not re-migrate areas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /** Generated layout snapshot — null until engineer clicks Generate Layout. */
   const [generatedPanelLayout, setGeneratedPanelLayout] = useState(null);
   const [layoutGenerationFingerprint, setLayoutGenerationFingerprint] = useState(null);
@@ -330,6 +345,22 @@ export default function DesignStudio() {
   const [panelDragActive, setPanelDragActive] = useState(false);
   const [selectedArrayId, setSelectedArrayId] = useState(null);
   const [arrayDisplayNames, setArrayDisplayNames] = useState({});
+  const [electricalHighlightPanelIds, setElectricalHighlightPanelIds] = useState([]);
+  const [electricalSelectedPanelIds, setElectricalSelectedPanelIds] = useState([]);
+  const [activeArrayPanelIds, setActiveArrayPanelIds] = useState([]);
+  const [electricalStringHighlightPanelIds, setElectricalStringHighlightPanelIds] = useState([]);
+  const [electricalStringWiringSegments, setElectricalStringWiringSegments] = useState([]);
+  const [electricalSelectedStringId, setElectricalSelectedStringId] = useState(null);
+  const [electricalSelectedArrayId, setElectricalSelectedArrayId] = useState(null);
+  const [electricalArrays, setElectricalArrays] = useState([]);
+  const [electricalTerminationPoint, setElectricalTerminationPoint] = useState(null);
+  const [electricalHomerunWiringSegments, setElectricalHomerunWiringSegments] = useState([]);
+  const [electricalTerminationPlacementMode, setElectricalTerminationPlacementMode] = useState(false);
+  const [electricalTerminationPointSelected, setElectricalTerminationPointSelected] = useState(false);
+  const [electricalTerminationDragActive, setElectricalTerminationDragActive] = useState(false);
+  const electricalPanelPickRef = useRef(null);
+  const electricalArrayToolRef = useRef(null);
+  const electricalTerminationRef = useRef(null);
 
   // ── Step 6 capacity planning (display + slot selection only) ─────────────
   const [placementPlanning, setPlacementPlanning] = useState(DEFAULT_PLACEMENT_PLANNING);
@@ -673,28 +704,23 @@ export default function DesignStudio() {
   // ── Selected panel module (Step 6A-1) ────────────────────────────────────
   const selectedPanel = useMemo(() => {
     if (usePlacementAreaPanelWorkflow) {
-      const cfg = resolveEffectivePanelConfig(
-        projectPanelDefaults,
-        selectedAreaForPanelConfig?.panelProperties,
-      );
+      const cfg = resolvePlacementAreaConfig(selectedAreaForPanelConfig?.panelProperties);
       return panelForPlacement(cfg.moduleId, cfg.orientation);
     }
     return getPanelById(selectedPanelId) ?? getPanelById(DEFAULT_PANEL_ID) ?? null;
   }, [
     usePlacementAreaPanelWorkflow,
     selectedAreaForPanelConfig,
-    projectPanelDefaults,
     selectedPanelId,
   ]);
 
   const layoutIsStale = useMemo(() => {
     if (!usePlacementAreaPanelWorkflow || !generatedPanelLayout) return false;
-    const current = placementLayoutFingerprint(projectPanelDefaults, placementAreas);
+    const current = placementLayoutFingerprint(placementAreas);
     return current !== layoutGenerationFingerprint;
   }, [
     usePlacementAreaPanelWorkflow,
     generatedPanelLayout,
-    projectPanelDefaults,
     placementAreas,
     layoutGenerationFingerprint,
   ]);
@@ -763,12 +789,21 @@ export default function DesignStudio() {
   }, [usePlacementAreaPanelWorkflow, generatedPanelLayout, panelOverrides]);
 
   // Active layout for downstream consumers (PA → effective; legacy → panelLayout).
-  const activePanelLayout = useMemo(() => {
+  const baselinePanelLayout = useMemo(() => {
     if (usePlacementAreaPanelWorkflow) {
       return effectivePanelLayout ?? EMPTY_PANEL_LAYOUT;
     }
     return panelLayout;
   }, [usePlacementAreaPanelWorkflow, effectivePanelLayout, panelLayout]);
+
+  const activePanelLayout = useMemo(() => {
+    const baseline = baselinePanelLayout;
+    const placedPanels = baseline?.placedPanels ?? [];
+    if (!electricalArrays.length) return baseline;
+
+    const rotatedPanels = applyElectricalArrayRotations(placedPanels, electricalArrays);
+    return { ...baseline, placedPanels: rotatedPanels };
+  }, [baselinePanelLayout, electricalArrays]);
 
   const renderedPlacedPanels = activePanelLayout.placedPanels ?? [];
 
@@ -1016,6 +1051,78 @@ export default function DesignStudio() {
     });
   }, []);
 
+  const handleElectricalSelectionChange = useCallback((info) => {
+    const hasStringHighlight = (info.stringHighlightPanelIds?.length ?? 0) > 0;
+    setElectricalHighlightPanelIds(hasStringHighlight ? [] : (info.highlightPanelIds ?? []));
+    setElectricalSelectedPanelIds(info.selectedElectricalPanelIds ?? []);
+    setActiveArrayPanelIds(info.activeArrayPanelIds ?? []);
+    setElectricalStringHighlightPanelIds(info.stringHighlightPanelIds ?? []);
+    setElectricalStringWiringSegments(info.stringWiringSegments ?? []);
+    setElectricalHomerunWiringSegments(info.homerunWiringSegments ?? []);
+    setElectricalSelectedStringId(info.selectedStringId ?? null);
+    setElectricalSelectedArrayId(info.selectedArrayId ?? null);
+    setElectricalTerminationPoint(info.terminationPoint ?? null);
+    setElectricalTerminationPlacementMode(!!info.terminationPlacementMode);
+    setElectricalTerminationPointSelected(!!info.terminationPointSelected);
+  }, []);
+
+  const handleArraysChange = useCallback((arrays) => {
+    setElectricalArrays(arrays ?? []);
+  }, []);
+
+  const handleTerminationPointChange = useCallback((point) => {
+    setElectricalTerminationPoint(point ?? null);
+  }, []);
+
+  const handleRegisterTerminationHandlers = useCallback((handlers) => {
+    electricalTerminationRef.current = handlers;
+  }, []);
+
+  const handleRegisterElectricalPanelPickHandlers = useCallback((handlers) => {
+    electricalPanelPickRef.current = handlers;
+  }, []);
+
+  const handleRegisterArrayToolHandlers = useCallback((handlers) => {
+    electricalArrayToolRef.current = handlers;
+  }, []);
+
+  const selectedElectricalArray = useMemo(() => {
+    if (!electricalSelectedArrayId) return null;
+    return electricalArrays.find((a) => a.id === electricalSelectedArrayId) ?? null;
+  }, [electricalArrays, electricalSelectedArrayId]);
+
+  const showArrayToolsToolbar = currentStep === WIZARD_STEP.ELECTRICAL
+    && !!selectedElectricalArray;
+
+  const handleArrayRotate = useCallback((arrayId, rotationDeg, options) => (
+    electricalArrayToolRef.current?.rotateArray?.(arrayId, rotationDeg, options)
+  ), []);
+
+  const handleArraySetFrozen = useCallback((arrayId, frozen, options) => (
+    electricalArrayToolRef.current?.setArrayFrozen?.(arrayId, frozen, options)
+  ), []);
+
+  const handlePlaceTerminationPoint = useCallback((x, z) => {
+    electricalTerminationRef.current?.placeTerminationPoint?.(x, z);
+  }, []);
+
+  const handleMoveTerminationPoint = useCallback((x, z) => {
+    electricalTerminationRef.current?.moveTerminationPoint?.(x, z);
+  }, []);
+
+  const handleSelectTerminationPoint = useCallback(() => {
+    electricalTerminationRef.current?.selectTerminationPoint?.(true);
+  }, []);
+
+  const handleElectricalSelectPanel = useCallback((slotId, options) => {
+    if (electricalTerminationPlacementMode) return;
+    electricalPanelPickRef.current?.selectPanel?.(slotId, options);
+  }, [electricalTerminationPlacementMode]);
+
+  const handleClearElectricalPanelSelection = useCallback(() => {
+    electricalPanelPickRef.current?.clearPanelSelection?.();
+  }, []);
+
   // Prune array renames when installable regions disappear after a re-run.
   useEffect(() => {
     const validIds = (placementReady?.installableRegions ?? []).map((r) => r.id);
@@ -1203,6 +1310,7 @@ export default function DesignStudio() {
   ]);
 
   const handleSelectPanelSlot = useCallback((slotId) => {
+    if (currentStep === WIZARD_STEP.ELECTRICAL) return;
     if (currentStep === WIZARD_STEP.VISUALIZATION) {
       const panel = renderedPlacedPanels.find(
         (p) => (p.slotId ?? p.id) === slotId,
@@ -1231,6 +1339,23 @@ export default function DesignStudio() {
     }
   }, [currentStep]);
 
+  // Clear electrical canvas state when leaving Step 7.
+  useEffect(() => {
+    if (currentStep !== WIZARD_STEP.ELECTRICAL) {
+      setElectricalHighlightPanelIds([]);
+      setElectricalSelectedPanelIds([]);
+      setActiveArrayPanelIds([]);
+      setElectricalStringHighlightPanelIds([]);
+      setElectricalStringWiringSegments([]);
+      setElectricalHomerunWiringSegments([]);
+      setElectricalSelectedStringId(null);
+      setElectricalSelectedArrayId(null);
+      setElectricalTerminationPlacementMode(false);
+      setElectricalTerminationPointSelected(false);
+      setElectricalTerminationDragActive(false);
+    }
+  }, [currentStep]);
+
   // Drop panel selection if the slot is no longer in the effective layout.
   useEffect(() => {
     if (!selectedPanelSlotId) return;
@@ -1244,6 +1369,25 @@ export default function DesignStudio() {
       setSelectedArrayId(null);
     }
   }, [panelArrays, selectedArrayId]);
+
+  // Keyboard shortcuts for electrical panel selection (Step 7).
+  useEffect(() => {
+    if (currentStep !== WIZARD_STEP.ELECTRICAL) return;
+    const onKey = (e) => {
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        handleClearElectricalPanelSelection();
+      }
+      if ((e.key === "Delete" || e.key === "Backspace") && electricalTerminationPointSelected) {
+        e.preventDefault();
+        electricalTerminationRef.current?.clearTerminationPoint?.();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [currentStep, handleClearElectricalPanelSelection, electricalTerminationPointSelected]);
 
   // Keyboard shortcuts for panel editing (Step 6).
   useEffect(() => {
@@ -1363,6 +1507,7 @@ export default function DesignStudio() {
           roofId,
           outerRing,
           name: autoNamePlacementArea(prev),
+          projectPanelDefaults,
         }),
         exposureResult,
         zoneResult,
@@ -1374,7 +1519,7 @@ export default function DesignStudio() {
     setPlacementAreaToast(null);
     setIsDrawingPlacementArea(false);
     setSelectedZoneId(null);
-  }, [roofSections, exposureResult, zoneResult]);
+  }, [roofSections, exposureResult, zoneResult, projectPanelDefaults]);
 
   const updatePlacementArea = useCallback((id, updates) => {
     setPlacementAreas((prev) =>
@@ -1392,61 +1537,21 @@ export default function DesignStudio() {
 
   const updateProjectPanelDefaults = useCallback((patch) => {
     setProjectPanelDefaults((prev) => ({ ...prev, ...patch }));
-    if (
-      usePlacementAreaPanelWorkflow
-      && generatedPanelLayout
-      && Object.prototype.hasOwnProperty.call(patch, "mountHeight")
-    ) {
-      setDesignState(DESIGN_STATE.DIRTY);
-    }
-  }, [usePlacementAreaPanelWorkflow, generatedPanelLayout]);
-
-  const updatePlacementAreaPanelProperties = useCallback((areaId, patch) => {
-    setPlacementAreas((prev) =>
-      prev.map((a) => {
-        if (a.id !== areaId) return a;
-        const current = a.panelProperties ?? { useProjectDefaults: true, override: null };
-        return {
-          ...a,
-          panelProperties: { ...current, ...patch },
-        };
-      }),
-    );
   }, []);
-
-  const setPlacementAreaUseProjectDefaults = useCallback((areaId, useProjectDefaults) => {
-    setPlacementAreas((prev) =>
-      prev.map((a) => {
-        if (a.id !== areaId) return a;
-        if (useProjectDefaults) {
-          return {
-            ...a,
-            panelProperties: { useProjectDefaults: true, override: null },
-          };
-        }
-        const resolved = resolveEffectivePanelConfig(projectPanelDefaults, a.panelProperties);
-        return {
-          ...a,
-          panelProperties: {
-            useProjectDefaults: false,
-            override: { ...resolved },
-          },
-        };
-      }),
-    );
-  }, [projectPanelDefaults]);
 
   const patchPlacementAreaConfig = useCallback((areaId, configPatch) => {
     setPlacementAreas((prev) =>
       prev.map((a) => {
         if (a.id !== areaId) return a;
-        const props = a.panelProperties ?? { useProjectDefaults: true, override: null };
-        if (props.useProjectDefaults !== false) return a;
+        const current = resolvePlacementAreaConfig(a.panelProperties);
         return {
           ...a,
           panelProperties: {
-            ...props,
-            override: { ...(props.override ?? {}), ...configPatch },
+            ...current,
+            ...configPatch,
+            designGoal: configPatch.designGoal
+              ? { ...current.designGoal, ...configPatch.designGoal }
+              : current.designGoal,
           },
         };
       }),
@@ -1460,42 +1565,53 @@ export default function DesignStudio() {
     }
   }, [usePlacementAreaPanelWorkflow, generatedPanelLayout]);
 
-  const handleGenerateLayout = useCallback((generateMode = GENERATE_MODES.CAPACITY) => {
-    if (!placementReady || !usePlacementAreaPanelWorkflow) return;
-
-    const layout = generateMultiAreaPanelLayout(
-      placementReady,
-      projectPanelDefaults,
-      placementAreas,
-      { generateMode },
-    );
-    const fingerprint = placementLayoutFingerprint(projectPanelDefaults, placementAreas);
-
-    setGeneratedPanelLayout(layout);
-    setLayoutGenerationFingerprint(fingerprint);
-    setPanelEditHistory(createPanelEditHistory());
-
+  const resetAreaToProjectTemplate = useCallback((areaId) => {
     setPlacementAreas((prev) =>
       prev.map((a) => {
-        if (a.deleted) return a;
+        if (a.id !== areaId) return a;
         return {
           ...a,
-          generatedLayout: computeAreaGeneratedLayoutRecord(
-            a,
-            layout,
-            projectPanelDefaults,
-            generateMode,
-          ),
+          panelProperties: createPlacementAreaConfigFromTemplate(projectPanelDefaults),
         };
       }),
     );
+  }, [projectPanelDefaults]);
+
+  const handleGenerateLayout = useCallback((generateMode = GENERATE_MODES.CAPACITY) => {
+    if (!placementReady || !usePlacementAreaPanelWorkflow) return;
+
+    const areasForGeneration = migratePlacementAreas(placementAreas, projectPanelDefaults);
+
+    const layout = generateMultiAreaPanelLayout(
+      placementReady,
+      areasForGeneration,
+      { generateMode },
+    );
+    const fingerprint = placementLayoutFingerprint(areasForGeneration);
+
+    const areasWithGenerated = areasForGeneration.map((a) => {
+      if (a.deleted) return a;
+      return {
+        ...a,
+        generatedLayout: computeAreaGeneratedLayoutRecord(
+          a,
+          layout,
+          generateMode,
+        ),
+      };
+    });
+
+    setPlacementAreas(areasWithGenerated);
+    setGeneratedPanelLayout(layout);
+    setLayoutGenerationFingerprint(fingerprint);
+    setPanelEditHistory(createPanelEditHistory());
 
     setDesignState(DESIGN_STATE.CLEAN);
   }, [
     placementReady,
     usePlacementAreaPanelWorkflow,
-    projectPanelDefaults,
     placementAreas,
+    projectPanelDefaults,
   ]);
 
   const handleGenerateMaximumLayout = useCallback(() => {
@@ -1899,7 +2015,7 @@ export default function DesignStudio() {
     onUpdateProjectPanelDefaults: updateProjectPanelDefaults,
     selectedPlacementArea: selectedAreaForPanelConfig,
     onSelectPlacementArea: handleSelectPlacementArea,
-    onSetPlacementAreaUseProjectDefaults: setPlacementAreaUseProjectDefaults,
+    onResetAreaToProjectTemplate: resetAreaToProjectTemplate,
     onPatchPlacementAreaConfig: patchPlacementAreaConfig,
     panelShadingRefinement: panelShadingRefinementResult,
     layoutIsStale,
@@ -1913,6 +2029,14 @@ export default function DesignStudio() {
     selectedPanel,
     // Panel layout — active read model (PA: effective; legacy: overrides)
     panelLayout: activePanelLayout,
+    baselinePanelLayout,
+    persistedArrays: electricalArrays,
+    persistedTerminationPoint: electricalTerminationPoint,
+    onArraysChange: handleArraysChange,
+    onTerminationPointChange: handleTerminationPointChange,
+    onRegisterArrayToolHandlers: handleRegisterArrayToolHandlers,
+    onRegisterTerminationHandlers: handleRegisterTerminationHandlers,
+    designCentre,
     panelEditMode,
     setPanelEditMode: handleSetPanelEditMode,
     selectedPanelSlotId,
@@ -1921,6 +2045,8 @@ export default function DesignStudio() {
     selectedArrayId,
     onSelectArray: setSelectedArrayId,
     onRenameArray: handleRenameArray,
+    onElectricalSelectionChange: handleElectricalSelectionChange,
+    onRegisterElectricalPanelPickHandlers: handleRegisterElectricalPanelPickHandlers,
     // Step 6 capacity planning
     placementPlanning,
     onUpdatePlacementPlanning: updatePlacementPlanning,
@@ -2147,7 +2273,46 @@ export default function DesignStudio() {
                 }
                 zonesDimmed={workspaceVisibility.zonesDimmed}
                 panelsInteractive={workspaceVisibility.panelEditing || currentStep === WIZARD_STEP.VISUALIZATION}
+                electricalPanelPicking={
+                  workspaceVisibility.electricalPanelPicking
+                  && !electricalTerminationPlacementMode
+                }
+                electricalTerminationActive={currentStep === WIZARD_STEP.ELECTRICAL}
+                activeArrayPanelIds={activeArrayPanelIds}
+                selectedElectricalPanelIds={electricalSelectedPanelIds}
+                stringHighlightPanelIds={electricalStringHighlightPanelIds}
+                stringWiringSegments={
+                  currentStep === WIZARD_STEP.ELECTRICAL ? electricalStringWiringSegments : []
+                }
+                homerunWiringSegments={
+                  currentStep === WIZARD_STEP.ELECTRICAL ? electricalHomerunWiringSegments : []
+                }
+                terminationPoint={
+                  currentStep === WIZARD_STEP.ELECTRICAL ? electricalTerminationPoint : null
+                }
+                terminationPlacementMode={
+                  currentStep === WIZARD_STEP.ELECTRICAL && electricalTerminationPlacementMode
+                }
+                terminationPointSelected={
+                  currentStep === WIZARD_STEP.ELECTRICAL && electricalTerminationPointSelected
+                }
+                onPlaceTerminationPoint={handlePlaceTerminationPoint}
+                onMoveTerminationPoint={handleMoveTerminationPoint}
+                onSelectTerminationPoint={handleSelectTerminationPoint}
+                onTerminationDragActiveChange={setElectricalTerminationDragActive}
+                terminationDragActive={electricalTerminationDragActive}
+                designCentre={designCentre}
+                selectedElectricalStringId={
+                  currentStep === WIZARD_STEP.ELECTRICAL ? electricalSelectedStringId : null
+                }
+                onElectricalSelectPanel={handleElectricalSelectPanel}
+                onClearElectricalPanelSelection={handleClearElectricalPanelSelection}
                 showPanelEditToolbar={workspaceVisibility.panelEditToolbar}
+                showArrayToolsToolbar={showArrayToolsToolbar}
+                selectedElectricalArray={selectedElectricalArray}
+                onArrayRotate={handleArrayRotate}
+                onArraySetFrozen={handleArraySetFrozen}
+                hidePlacementAreaEditToolbar={currentStep === WIZARD_STEP.ELECTRICAL}
                 presentationMode={currentStep === WIZARD_STEP.VISUALIZATION}
                 presentationLayers={currentStep === WIZARD_STEP.VISUALIZATION ? presentationLayers : null}
                 panelEditMode={panelEditMode}
@@ -2156,6 +2321,12 @@ export default function DesignStudio() {
                 onSelectPanelSlot={handleSelectPanelSlot}
                 onDeselectPanelSlot={() => setSelectedPanelSlotId(null)}
                 selectedArrayId={selectedArrayId}
+                arrayHighlightPanelIds={
+                  currentStep === WIZARD_STEP.ELECTRICAL ? electricalHighlightPanelIds : null
+                }
+                dimElectricalArrays={
+                  currentStep === WIZARD_STEP.ELECTRICAL && electricalHighlightPanelIds.length > 0
+                }
                 onDeselectArray={() => setSelectedArrayId(null)}
                 onDeletePanelSlot={handleDeleteSelectedPanel}
                 onAddPanelSlot={handleAddPanelSlot}

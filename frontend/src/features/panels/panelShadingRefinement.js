@@ -12,7 +12,7 @@
 import { scoreCell } from "../simulation/exposureScore.js";
 import { pointInRing } from "../zones/zoneGeometryUtils.js";
 import { obstacleOuterRing } from "../zones/placementReady.js";
-import { resolveEffectivePanelConfig } from "./panelConfig.js";
+import { resolvePlacementAreaConfig } from "./panelConfig.js";
 
 export const SHADING_ENGINEERING_STATUS = /** @type {const} */ ({
   CLEARANCE:   "clearance",
@@ -103,7 +103,7 @@ function findPlacementAreaForRegion(regionId, placementReady, placementAreas) {
 
 function mountHeightForPanel(panel, placementAreas, projectDefaults, placementReady) {
   const area = findPlacementAreaForRegion(panel.regionId, placementReady, placementAreas);
-  const cfg = resolveEffectivePanelConfig(projectDefaults, area?.panelProperties);
+  const cfg = resolvePlacementAreaConfig(area?.panelProperties);
   return Math.max(0, Number(cfg.mountHeight) || 0);
 }
 

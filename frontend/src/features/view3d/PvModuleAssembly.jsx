@@ -22,6 +22,8 @@ export default function PvModuleAssembly({
   onClick,
   onPointerDown,
   showSelectionRing = false,
+  electricalSelected = false,
+  stringMemberHighlight = false,
 }) {
   const materials = useMemo(() => getSharedMaterials(), []);
   const geos = useMemo(
@@ -29,10 +31,17 @@ export default function PvModuleAssembly({
     [panel.width, panel.length],
   );
 
-  const glassMat = useMemo(
-    () => tintGlassMaterial(materials.glass, { selected, dragging, arrayHighlight, dimmed }),
-    [materials.glass, selected, dragging, arrayHighlight, dimmed],
-  );
+  const glassMat = useMemo(() => {
+    if (stringMemberHighlight && !electricalSelected) {
+      const mat = materials.glass.clone();
+      mat.emissive.set("#00E38C");
+      mat.emissiveIntensity = 0.32;
+      mat.transparent = true;
+      mat.opacity = 0.95;
+      return mat;
+    }
+    return tintGlassMaterial(materials.glass, { selected, dragging, arrayHighlight, dimmed });
+  }, [materials.glass, selected, dragging, arrayHighlight, dimmed, stringMemberHighlight, electricalSelected]);
 
   useEffect(() => () => {
     if (glassMat !== materials.glass) glassMat.dispose();
@@ -76,6 +85,43 @@ export default function PvModuleAssembly({
           <boxGeometry args={[panel.width + 0.06, 0.01, panel.length + 0.06]} />
           <meshBasicMaterial color="#4F8CFF" transparent opacity={0.85} depthWrite={false} />
         </mesh>
+      )}
+
+      {electricalSelected && (
+        <mesh position={[0, stack.moduleCenterY + 0.035, 0]} renderOrder={12}>
+          <boxGeometry args={[panel.width + 0.1, 0.008, panel.length + 0.1]} />
+          <meshBasicMaterial
+            color="#06B6D4"
+            wireframe
+            transparent
+            opacity={1}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
+
+      {stringMemberHighlight && !electricalSelected && (
+        <>
+          <mesh position={[0, stack.moduleCenterY + 0.032, 0]} renderOrder={12}>
+            <boxGeometry args={[panel.width + 0.14, 0.012, panel.length + 0.14]} />
+            <meshBasicMaterial
+              color="#00E38C"
+              transparent
+              opacity={0.35}
+              depthWrite={false}
+            />
+          </mesh>
+          <mesh position={[0, stack.moduleCenterY + 0.042, 0]} renderOrder={13}>
+            <boxGeometry args={[panel.width + 0.14, 0.01, panel.length + 0.14]} />
+            <meshBasicMaterial
+              color="#00E38C"
+              wireframe
+              transparent
+              opacity={1}
+              depthWrite={false}
+            />
+          </mesh>
+        </>
       )}
     </group>
   );

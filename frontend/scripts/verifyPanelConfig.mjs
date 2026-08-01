@@ -7,10 +7,10 @@ import { PANEL_TYPES, getPanelById, DEFAULT_PANEL_ID } from "../src/features/pan
 import {
   DEFAULT_PROJECT_PANEL_DEFAULTS,
   ORIENTATIONS,
-  resolveEffectivePanelConfig,
+  resolvePlacementAreaConfig,
   panelForPlacement,
   placementLayoutFingerprint,
-  createDefaultPanelProperties,
+  createPlacementAreaConfigFromTemplate,
 } from "../src/features/panels/panelConfig.js";
 import { generateMultiAreaPanelLayout } from "../src/features/panels/panelLayoutGenerator.js";
 import { computePlacementReady } from "../src/features/zones/placementReady.js";
@@ -25,26 +25,27 @@ assert(PANEL_TYPES.every((m) => m.manufacturer && m.powerW && m.widthM && m.heig
 assert(getPanelById(DEFAULT_PANEL_ID)?.power === PANEL_TYPES[0].powerW, "legacy power alias");
 console.log("✓ Module library");
 
-// ── Project defaults + override ────────────────────────────────────────────
+// ── Template snapshot + owned config ─────────────────────────────────────────
 const project = { ...DEFAULT_PROJECT_PANEL_DEFAULTS };
 const area = {
   id: "pa::r1::a",
   roofId: "r1",
   deleted: false,
-  panelProperties: createDefaultPanelProperties(),
+  panelProperties: createPlacementAreaConfigFromTemplate(project),
 };
 
-let resolved = resolveEffectivePanelConfig(project, area.panelProperties);
-assert(resolved.moduleId === project.moduleId, "inherits project moduleId");
+let resolved = resolvePlacementAreaConfig(area.panelProperties);
+assert(resolved.moduleId === project.moduleId, "owned config matches template at creation");
 
-area.panelProperties = {
-  useProjectDefaults: false,
-  override: { ...project, moduleId: "jinko-tiger-neo-530", orientation: ORIENTATIONS.LANDSCAPE },
-};
-resolved = resolveEffectivePanelConfig(project, area.panelProperties);
-assert(resolved.moduleId === "jinko-tiger-neo-530", "override moduleId");
-assert(resolved.orientation === ORIENTATIONS.LANDSCAPE, "override orientation");
-console.log("✓ Project defaults + per-area override");
+area.panelProperties = createPlacementAreaConfigFromTemplate({
+  ...project,
+  moduleId: "jinko-tiger-neo-530",
+  orientation: ORIENTATIONS.LANDSCAPE,
+});
+resolved = resolvePlacementAreaConfig(area.panelProperties);
+assert(resolved.moduleId === "jinko-tiger-neo-530", "owned moduleId");
+assert(resolved.orientation === ORIENTATIONS.LANDSCAPE, "owned orientation");
+console.log("✓ Template snapshot + owned per-area config");
 
 // ── Orientation swaps footprint ──────────────────────────────────────────────
 const portrait = panelForPlacement("longi-himo6-550", ORIENTATIONS.PORTRAIT);
@@ -53,17 +54,20 @@ assert(portrait.width !== landscape.width, "orientation changes width");
 assert(portrait.height !== landscape.height, "orientation changes height");
 console.log("✓ Orientation footprint swap");
 
-// ── Layout fingerprint (module + orientation only) ───────────────────────────
-const fp1 = placementLayoutFingerprint(project, [area]);
-const fp2 = placementLayoutFingerprint({ ...project, tilt: 25 }, [area]);
+// ── Layout fingerprint (module + orientation + capacity) ─────────────────────
+const fp1 = placementLayoutFingerprint([area]);
+const fp2 = placementLayoutFingerprint([{
+  ...area,
+  panelProperties: { ...area.panelProperties, tilt: 25 },
+}]);
 assert(fp1 === fp2, "tilt change does not affect layout fingerprint");
 
-const fp3 = placementLayoutFingerprint(project, [{
+const fp3 = placementLayoutFingerprint([{
   ...area,
-  panelProperties: {
-    useProjectDefaults: false,
-    override: { ...project, moduleId: "trina-vertex-545" },
-  },
+  panelProperties: createPlacementAreaConfigFromTemplate({
+    ...project,
+    moduleId: "trina-vertex-545",
+  }),
 }]);
 assert(fp1 !== fp3, "module change affects fingerprint");
 console.log("✓ Layout fingerprint");
@@ -84,17 +88,16 @@ const ready = computePlacementReady({
   roofSections: ROOF,
 });
 
-const layoutPortrait = generateMultiAreaPanelLayout(ready, project, [pa]);
-const layoutLandscape = generateMultiAreaPanelLayout(ready, project, [{
+const layoutPortrait = generateMultiAreaPanelLayout(ready, [pa]);
+const layoutLandscape = generateMultiAreaPanelLayout(ready, [{
   ...pa,
-  panelProperties: {
-    useProjectDefaults: false,
-    override: { ...project, orientation: ORIENTATIONS.LANDSCAPE },
-  },
+  panelProperties: createPlacementAreaConfigFromTemplate({
+    ...project,
+    orientation: ORIENTATIONS.LANDSCAPE,
+  }),
 }]);
 assert(layoutPortrait.placedPanels.length > 0, "portrait layout has panels");
 assert(layoutLandscape.placedPanels.length > 0, "landscape layout has panels");
-// Footprint swap is verified above; slot count may match on symmetric square polygons.
 console.log("✓ Layout generation respects orientation footprint");
 
 console.log("\nAll panel configuration verification tests passed.");

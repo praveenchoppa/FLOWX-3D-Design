@@ -1,8 +1,28 @@
 /**
- * ConnectionLayer.jsx — P3+ strings and cables drawn over panels (logical or routed).
- *
- * Not imported anywhere in Task A scaffolding.
+ * ConnectionLayer.jsx — Electrical wiring overlay (P5D intra + P5E homerun).
  */
-export default function ConnectionLayer() {
-  return null;
+import StringWiringLayer from "./StringWiringLayer.jsx";
+import HomerunWiringLayer from "./HomerunWiringLayer.jsx";
+
+export default function ConnectionLayer({
+  intraSegments = [],
+  homerunSegments = [],
+  selectedStringId = null,
+}) {
+  return (
+    <>
+      {intraSegments.length > 0 && (
+        <StringWiringLayer
+          segments={intraSegments}
+          selectedStringId={selectedStringId}
+        />
+      )}
+      {homerunSegments.length > 0 && (
+        <HomerunWiringLayer
+          segments={homerunSegments}
+          selectedStringId={selectedStringId}
+        />
+      )}
+    </>
+  );
 }

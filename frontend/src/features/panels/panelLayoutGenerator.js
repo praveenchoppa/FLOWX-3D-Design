@@ -1,16 +1,15 @@
 /**
  * panelLayoutGenerator.js — Multi–Placement Area layout orchestration (pure).
  *
- * Calls computePanelLayout() once per area with that area's resolved module +
- * orientation.  Does NOT modify the placement algorithm.
+ * Calls computePanelLayout() once per area using that area's OWNED config only.
+ * Does NOT read live project defaults during regeneration.
  */
 
 import { computePanelLayout } from "./panelPlacement.js";
 import {
   panelForPlacement,
   regionIdsForPlacementArea,
-  resolveEffectivePanelConfig,
-  resolveEffectiveDesignGoal,
+  resolvePlacementAreaConfig,
 } from "./panelConfig.js";
 import {
   applyCapacityLimit,
@@ -33,7 +32,6 @@ export const EMPTY_PANEL_LAYOUT = {
  * Generate panel layout across all active placement areas.
  *
  * @param {object|null} placementReady
- * @param {import("./panelConfig.js").ProjectPanelDefaults} projectDefaults
  * @param {object[]} placementAreas
  * @param {object} [options]
  * @param {string} [options.generateMode]  "capacity" | "maximum"
@@ -41,7 +39,6 @@ export const EMPTY_PANEL_LAYOUT = {
  */
 export function generateMultiAreaPanelLayout(
   placementReady,
-  projectDefaults,
   placementAreas,
   options = {},
 ) {
@@ -60,8 +57,8 @@ export function generateMultiAreaPanelLayout(
   };
 
   for (const area of activeAreas) {
-    const cfg = resolveEffectivePanelConfig(projectDefaults, area.panelProperties);
-    const designGoal = resolveEffectiveDesignGoal(projectDefaults, area.panelProperties);
+    const cfg = resolvePlacementAreaConfig(area.panelProperties);
+    const designGoal = cfg.designGoal;
     const panel = panelForPlacement(cfg.moduleId, cfg.orientation);
     if (!panel) continue;
 

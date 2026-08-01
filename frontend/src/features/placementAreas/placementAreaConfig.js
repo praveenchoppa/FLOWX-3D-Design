@@ -2,7 +2,9 @@
  * placementAreaConfig.js — Placement Area subsystem constants (independent of engineering zones).
  */
 
-import { createDefaultPanelProperties } from "../panels/panelConfig.js";
+import {
+  createPlacementAreaConfigFromTemplate,
+} from "../panels/panelConfig.js";
 
 /** Minimum outer-ring area (m²) for an accepted placement area polygon. */
 export const MIN_PLACEMENT_AREA_M2 = 1.0;
@@ -75,9 +77,10 @@ export function autoNamePlacementArea(existingPlacementAreas = []) {
  * @param {string} params.roofId
  * @param {[number, number][]} params.outerRing
  * @param {string} params.name
+ * @param {object} [params.projectPanelDefaults]  template snapshot for new area config
  * @returns {object}
  */
-export function createPlacementAreaRecord({ roofId, outerRing, name }) {
+export function createPlacementAreaRecord({ roofId, outerRing, name, projectPanelDefaults = null }) {
   return {
     id:              createPlacementAreaId(roofId),
     roofId,
@@ -85,7 +88,7 @@ export function createPlacementAreaRecord({ roofId, outerRing, name }) {
     polygon:         { outerRing, holes: [] },
     deleted:         false,
     stats:           null,
-    panelProperties: createDefaultPanelProperties(),
+    panelProperties: createPlacementAreaConfigFromTemplate(projectPanelDefaults),
     generatedLayout: null,
     electrical:      null,
   };

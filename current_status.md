@@ -98,7 +98,13 @@ Step 8E (customer electricity usage & coverage) — consumptionConfig.js + compu
 
 ELECTRICAL DESIGN — module status
 
-Status: Design COMPLETE. Architecture FROZEN in ElectricalDesign_TDD.md (v1.0). Implementation phase: P1 (foundation). Current task: P1 Task A.
+Status: Design COMPLETE. Architecture FROZEN in ElectricalDesign_TDD.md (v1.0). Implementation through P5D + Step 7 array rotation/freeze complete.
+
+Completed phases: P0 (wizard step) · P1 (store + arrays + workspace) · P2 (array edit + panel selection + split) · P3 (string create/manage) · P4 (inverter catalog + MPPT generation) · P4b (String→MPPT assignment) · P5A (derived DC capacity + DC/AC calculations) · P5B (one String per MPPT workflow enforcement) · P5C (MPPT utilization + allowed overload slider + soft warnings) · P5D (intra-string wiring visualization + center-to-center length estimate) · **Step 7 array rotation + freeze** · **P5E homerun wiring + user-placed Termination Point** (derived-only `EffectiveWiringLayout`, straight-line homerun, workspace placement plane, persistence like arrays).
+
+Verify: `npx vite-node scripts/verifyHomerunWiring.mjs` (plus existing P5 regression scripts).
+
+NEXT: P6 cable routing (logical/routed toggle) or next TDD phase.
 
 Reference (source of truth): ElectricalDesign_TDD.md — read it first for every Electrical Design prompt. Follow it exactly; do not deviate from the architecture unless implementation reveals a genuine gap (then update the TDD, commit, continue).
 
@@ -120,7 +126,7 @@ Per-task discipline: prompt begins "Read ElectricalDesign_TDD.md first, follow i
 
 NEXT
 
-ELECTRICAL DESIGN P1 — Task A (module scaffolding), then B/C/D. This is the current active work. 5E (full) — Merge + split zones (deferred). Panel drag-move / rotate — rotate control currently non-functional; fix later (NOT an electrical dependency).
+ELECTRICAL DESIGN P5E+ — termination placement + homerun cable length (when confirmed). 5E (full) — Merge + split zones (deferred). Panel drag-move / rotate — rotate control currently non-functional; fix later (NOT an electrical dependency).
 
 DEFERRED — future upgrades & polish, BY STEP
 

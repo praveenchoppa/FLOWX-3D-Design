@@ -7,29 +7,33 @@
 import { useMemo, useState } from "react";
 import {
   FiLayers, FiZap, FiTarget, FiGrid, FiAlertCircle, FiRefreshCw, FiSettings,
-  FiCheckCircle,
+  FiCheckCircle, FiRotateCcw,
 } from "react-icons/fi";
 
 import {
-  PanelShell, PanelHeader, DataRow, KpiCard,
+  PanelShell, DataRow, KpiCard,
   InstructionList, DIVIDER, SEC_LABEL,
 } from "./panelUtils";
 import ArrayCard from "./ArrayCard";
 
 import { computePanelCapacity } from "../panels/panelPlacement";
-import { PANEL_TYPES } from "../panels/panelTypes";
 import {
   computeEffectiveLayoutSummary,
-  buildPlacementAreaLayoutSummaries,
+  buildEngineeringAreaSummaries,
+  computeProjectEngineeringSummary,
+  computeAreaGenerationStatus,
+  AREA_GENERATION_STATUS,
+  AREA_GENERATION_STATUS_LABEL,
 } from "../panels/panelLayoutSummary";
+import { buildSelectedPanelDisplayInfo } from "../panels/panelInspectorUtils";
+import LayoutSummarySection from "./LayoutSummarySection.jsx";
+import { PanelConfigFields, ConfigField, inputClass } from "./panelConfigFields.jsx";
+import ProjectDefaultsDialog from "./ProjectDefaultsDialog.jsx";
 import {
-  ORIENTATIONS,
-  MOUNT_TYPES,
-  resolveEffectivePanelConfig,
+  resolvePlacementAreaConfig,
   panelForPlacement,
 } from "../panels/panelConfig";
 import { computeCapacityPreview } from "../panels/panelDesignGoal";
-import { inferPanelOrientation } from "../panels/panelEditorUtils";
 import {
   PLACEMENT_MODES,
   CAPACITY_INPUT_MODES,
@@ -40,20 +44,6 @@ function formatDim(m) {
   if (m == null || isNaN(m)) return "—";
   return `${m.toFixed(3)} m`;
 }
-
-function ConfigField({ label, children }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-[10px] text-[#94A3B8]">{label}</span>
-      {children}
-    </label>
-  );
-}
-
-const inputClass =
-  "w-full px-3 py-2 rounded-lg bg-[rgba(7,17,32,0.6)] border border-[#23324A] text-[13px] text-[#F8FAFC] outline-none focus:border-[#4F8CFF] disabled:opacity-50 disabled:cursor-not-allowed";
-
-const selectClass = `${inputClass} cursor-pointer`;
 
 const SHADING_STATUS_META = {
   [SHADING_ENGINEERING_STATUS.CLEARANCE]: {
@@ -101,6 +91,77 @@ function ObstacleEngineeringCard({ entry }) {
   );
 }
 
+function generationStatusStyle(syncStatus) {
+  if (syncStatus === AREA_GENERATION_STATUS.REGENERATION_REQUIRED) {
+    return { text: "text-[#FFB547]", border: "border-[#FFB547]/30", bg: "bg-[#FFB547]/8" };
+  }
+  if (syncStatus === AREA_GENERATION_STATUS.UP_TO_DATE) {
+    return { text: "text-[#00E38C]", border: "border-[#00E38C]/30", bg: "bg-[#00E38C]/8" };
+  }
+  return { text: "text-[#94A3B8]", border: "border-[#23324A]", bg: "bg-[rgba(7,17,32,0.4)]" };
+}
+
+function PlacementAreaCard({
+  area,
+  isSelected,
+  onSelect,
+  syncStatus,
+  panelCount,
+  targetCapacityKw,
+  onGenerateLayout,
+  placementReady,
+  capacityExceeds,
+}) {
+  const statusStyle = generationStatusStyle(syncStatus);
+  const showGenerate = syncStatus === AREA_GENERATION_STATUS.NOT_GENERATED;
+  const showRegenerate = syncStatus === AREA_GENERATION_STATUS.REGENERATION_REQUIRED;
+  const actionLabel = showRegenerate ? "Regenerate" : "Generate";
+
+  return (
+    <div
+      className={`rounded-xl border transition-all ${
+        isSelected
+          ? "border-[#06B6D4]/40 bg-[#06B6D4]/10"
+          : `${statusStyle.border} ${statusStyle.bg}`
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left"
+      >
+        <div className="flex flex-col gap-0.5 min-w-0">
+          <span className="text-[12px] font-medium text-[#F8FAFC] truncate">{area.name}</span>
+          <span className="text-[10px] text-[#64748B] tabular-nums">
+            Target {targetCapacityKw.toFixed(1)} kW
+            {panelCount > 0 && ` · ${panelCount} panels`}
+          </span>
+        </div>
+        <span className={`text-[9px] font-semibold uppercase tracking-wide shrink-0 ${statusStyle.text}`}>
+          {AREA_GENERATION_STATUS_LABEL[syncStatus]}
+        </span>
+      </button>
+
+      {(showGenerate || showRegenerate) && (
+        <div className="px-3 pb-2.5 pt-0">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onGenerateLayout();
+            }}
+            disabled={!placementReady || capacityExceeds}
+            className="flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-lg text-[11px] font-semibold bg-[#4F8CFF] text-white hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            <FiRefreshCw size={12} />
+            {actionLabel}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MountHeightEngineeringSection({ panelShadingRefinement }) {
   const entries = panelShadingRefinement?.obstacles ?? [];
   if (!entries.length) return null;
@@ -123,204 +184,60 @@ function MountHeightEngineeringSection({ panelShadingRefinement }) {
   );
 }
 
-function PanelConfigFields({
-  config,
-  readOnly,
-  onPatch,
-}) {
-  return (
-    <div className="flex flex-col gap-3">
-      <ConfigField label="Target Capacity (kW)">
-        <input
-          type="number"
-          min="0"
-          step="0.1"
-          value={config.designGoal?.targetCapacityKW ?? ""}
-          disabled={readOnly}
-          onChange={(e) => onPatch({
-            designGoal: {
-              type: "capacity",
-              targetCapacityKW: Number(e.target.value),
-            },
-          })}
-          className={inputClass}
-        />
-      </ConfigField>
-
-      <ConfigField label="Module">
-        <select
-          value={config.moduleId}
-          disabled={readOnly}
-          onChange={(e) => onPatch({ moduleId: e.target.value })}
-          className={selectClass}
-        >
-          {PANEL_TYPES.map((mod) => (
-            <option key={mod.id} value={mod.id}>
-              {mod.manufacturer} {mod.model} — {mod.powerW}W
-            </option>
-          ))}
-        </select>
-      </ConfigField>
-
-      <ConfigField label="Orientation">
-        <div className="flex gap-1 p-1 rounded-full bg-[rgba(7,17,32,0.6)] border border-[#23324A]">
-          {[
-            { key: ORIENTATIONS.PORTRAIT, label: "Portrait" },
-            { key: ORIENTATIONS.LANDSCAPE, label: "Landscape" },
-          ].map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              disabled={readOnly}
-              onClick={() => onPatch({ orientation: key })}
-              className={`flex-1 px-3 py-2 rounded-full text-[11px] font-medium transition-all duration-150 disabled:opacity-50 ${
-                config.orientation === key
-                  ? "bg-[#4F8CFF] text-white"
-                  : "text-[#94A3B8] hover:text-[#F8FAFC]"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </ConfigField>
-
-      <div className="grid grid-cols-2 gap-2">
-        <ConfigField label="Tilt (°)">
-          <input
-            type="number"
-            min="0"
-            max="90"
-            step="1"
-            value={config.tilt}
-            disabled={readOnly}
-            onChange={(e) => onPatch({ tilt: Number(e.target.value) })}
-            className={inputClass}
-          />
-        </ConfigField>
-        <ConfigField label="Azimuth (°)">
-          <input
-            type="number"
-            min="0"
-            max="360"
-            step="1"
-            value={config.azimuth}
-            disabled={readOnly}
-            onChange={(e) => onPatch({ azimuth: Number(e.target.value) })}
-            className={inputClass}
-          />
-        </ConfigField>
-      </div>
-
-      <ConfigField label="Mount Type">
-        <select
-          value={config.mountType}
-          disabled={readOnly}
-          onChange={(e) => onPatch({ mountType: e.target.value })}
-          className={selectClass}
-        >
-          <option value={MOUNT_TYPES.FLUSH}>Flush mount</option>
-          <option value={MOUNT_TYPES.TILTED}>Tilted mount</option>
-          <option value={MOUNT_TYPES.BALLASTED}>Ballasted</option>
-        </select>
-      </ConfigField>
-
-      <ConfigField label="Mount Height (m)">
-        <input
-          type="number"
-          min="0"
-          max="3"
-          step="0.05"
-          value={config.mountHeight}
-          disabled={readOnly}
-          onChange={(e) => onPatch({ mountHeight: Number(e.target.value) })}
-          className={inputClass}
-        />
-      </ConfigField>
-    </div>
-  );
-}
-
 function PlacementAreaConfigPanel({
   placementAreas,
   selectedPlacementArea,
   onSelectPlacementArea,
-  projectPanelDefaults,
-  onUpdateProjectPanelDefaults,
-  onSetPlacementAreaUseProjectDefaults,
+  onResetAreaToProjectTemplate,
   onPatchPlacementAreaConfig,
-  layoutIsStale,
   hasGeneratedLayout,
   onGenerateLayout,
   onGenerateMaximumLayout,
   placementReady,
-  areaLayoutSummaries = [],
+  engineeringAreaSummaries = [],
+  projectEngineeringSummary = null,
 }) {
   const activeAreas = placementAreas.filter((a) => !a.deleted);
 
   const areaPanelCountById = useMemo(
-    () => new Map(areaLayoutSummaries.map((row) => [row.id, row.panelCount])),
-    [areaLayoutSummaries],
+    () => new Map(engineeringAreaSummaries.map((row) => [row.id, row.panelCount])),
+    [engineeringAreaSummaries],
+  );
+
+  const areaCapacityById = useMemo(
+    () => new Map(
+      activeAreas.map((area) => {
+        const cfg = resolvePlacementAreaConfig(area.panelProperties);
+        return [area.id, cfg.designGoal.targetCapacityKW];
+      }),
+    ),
+    [activeAreas],
   );
 
   const effectiveConfig = useMemo(() => {
-    if (!selectedPlacementArea) return projectPanelDefaults;
-    return resolveEffectivePanelConfig(
-      projectPanelDefaults,
-      selectedPlacementArea.panelProperties,
-    );
-  }, [selectedPlacementArea, projectPanelDefaults]);
+    if (!selectedPlacementArea) return null;
+    return resolvePlacementAreaConfig(selectedPlacementArea.panelProperties);
+  }, [selectedPlacementArea]);
 
   const footprintPanel = useMemo(
-    () => panelForPlacement(effectiveConfig.moduleId, effectiveConfig.orientation),
+    () => (effectiveConfig
+      ? panelForPlacement(effectiveConfig.moduleId, effectiveConfig.orientation)
+      : null),
     [effectiveConfig],
   );
 
   const capacityPreview = useMemo(() => {
     if (!selectedPlacementArea || !placementReady) return null;
-    return computeCapacityPreview(
-      placementReady,
-      projectPanelDefaults,
-      selectedPlacementArea,
-    );
-  }, [selectedPlacementArea, placementReady, projectPanelDefaults, effectiveConfig]);
-
-  const usesDefaults = selectedPlacementArea
-    ? selectedPlacementArea.panelProperties?.useProjectDefaults !== false
-    : true;
+    return computeCapacityPreview(placementReady, selectedPlacementArea);
+  }, [selectedPlacementArea, placementReady, effectiveConfig]);
 
   const handleAreaPatch = (patch) => {
     if (!selectedPlacementArea) return;
-    if (usesDefaults) return;
     onPatchPlacementAreaConfig(selectedPlacementArea.id, patch);
-  };
-
-  const handleProjectPatch = (patch) => {
-    onUpdateProjectPanelDefaults(patch);
   };
 
   return (
     <>
-      {/* Project Defaults */}
-      <div className="flex flex-col gap-3 px-3 py-3 rounded-xl bg-[rgba(7,17,32,0.5)] border border-[#23324A]">
-        <div className="flex items-center gap-2">
-          <FiSettings size={12} className="text-[#94A3B8]" />
-          <span className="text-[9px] font-bold tracking-[0.18em] text-[#94A3B8] uppercase">
-            Project Defaults
-          </span>
-        </div>
-        <p className="text-[10px] text-[#4a5c75] leading-relaxed">
-          New placement areas inherit these settings. Override per area below.
-        </p>
-        <PanelConfigFields
-          config={projectPanelDefaults}
-          readOnly={false}
-          onPatch={handleProjectPatch}
-        />
-      </div>
-
-      {DIVIDER}
-
       {/* Placement area picker */}
       <div className="flex flex-col gap-2">
         <span className={SEC_LABEL} style={{ marginBottom: 0 }}>Placement Areas</span>
@@ -329,64 +246,56 @@ function PlacementAreaConfigPanel({
             Draw placement areas in Step 5 before configuring panels.
           </p>
         ) : (
-          activeAreas.map((area) => (
-            <button
-              key={area.id}
-              type="button"
-              onClick={() => onSelectPlacementArea(area.id)}
-              className={`flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition-all border ${
-                selectedPlacementArea?.id === area.id
-                  ? "bg-[#06B6D4]/15 border-[#06B6D4]/40 text-[#F8FAFC]"
-                  : "bg-[rgba(7,17,32,0.4)] border-[#23324A] text-[#94A3B8] hover:text-[#F8FAFC]"
-              }`}
-            >
-              <span className="text-[12px] font-medium">{area.name}</span>
-              {(areaPanelCountById.get(area.id) ?? 0) > 0 && (
-                <span className="text-[10px] tabular-nums text-[#06B6D4]">
-                  {areaPanelCountById.get(area.id)} panels
-                </span>
-              )}
-            </button>
-          ))
+          activeAreas.map((area) => {
+            const syncStatus = computeAreaGenerationStatus(area);
+            const areaPreview = placementReady
+              ? computeCapacityPreview(placementReady, area)
+              : null;
+
+            return (
+              <PlacementAreaCard
+                key={area.id}
+                area={area}
+                isSelected={selectedPlacementArea?.id === area.id}
+                onSelect={() => onSelectPlacementArea(area.id)}
+                syncStatus={syncStatus}
+                panelCount={areaPanelCountById.get(area.id) ?? 0}
+                targetCapacityKw={areaCapacityById.get(area.id) ?? 0}
+                onGenerateLayout={onGenerateLayout}
+                placementReady={placementReady}
+                capacityExceeds={areaPreview?.exceeds ?? false}
+              />
+            );
+          })
         )}
       </div>
 
-      {selectedPlacementArea && (
+      {selectedPlacementArea && effectiveConfig && (
         <>
           {DIVIDER}
 
           <div className="flex flex-col gap-3 px-3 py-3 rounded-xl bg-[#06B6D4]/8 border border-[#06B6D4]/25">
-            <span className="text-[9px] font-bold tracking-[0.18em] text-[#06B6D4] uppercase">
-              Panel Configuration · {selectedPlacementArea.name}
-            </span>
-
-            {/* Override toggles */}
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name={`pa-config-${selectedPlacementArea.id}`}
-                  checked={usesDefaults}
-                  onChange={() => onSetPlacementAreaUseProjectDefaults(selectedPlacementArea.id, true)}
-                  className="accent-[#06B6D4]"
-                />
-                <span className="text-[11px] text-[#F8FAFC]">Use Project Defaults</span>
-              </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name={`pa-config-${selectedPlacementArea.id}`}
-                  checked={!usesDefaults}
-                  onChange={() => onSetPlacementAreaUseProjectDefaults(selectedPlacementArea.id, false)}
-                  className="accent-[#06B6D4]"
-                />
-                <span className="text-[11px] text-[#F8FAFC]">Override For This Area</span>
-              </label>
+            <div className="flex items-start justify-between gap-2">
+              <span className="text-[9px] font-bold tracking-[0.18em] text-[#06B6D4] uppercase">
+                Area Configuration · {selectedPlacementArea.name}
+              </span>
+              <button
+                type="button"
+                onClick={() => onResetAreaToProjectTemplate(selectedPlacementArea.id)}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-[#23324A]/60 transition-colors shrink-0"
+                title="Replace this area's settings with the current project template"
+              >
+                <FiRotateCcw size={11} />
+                Reset to Template
+              </button>
             </div>
+            <p className="text-[10px] text-[#4a5c75] leading-relaxed">
+              This area keeps its own settings. Regenerate uses only these values.
+            </p>
 
             <PanelConfigFields
               config={effectiveConfig}
-              readOnly={usesDefaults}
+              readOnly={false}
               onPatch={handleAreaPatch}
             />
 
@@ -475,48 +384,6 @@ function PlacementAreaConfigPanel({
             </div>
           </div>
 
-          {/* Generated layout stats — selected area only shows requested target;
-              authoritative counts live in Layout Summary below */}
-          {selectedPlacementArea.generatedLayout && (
-            <div className="flex flex-col gap-2 px-3 py-2.5 rounded-xl bg-[#23324A]/40 border border-[#23324A]">
-              <p className="text-[10px] text-[#94A3B8] leading-relaxed">
-                Target:{" "}
-                <span className="text-[#FFB547] font-semibold tabular-nums">
-                  {(selectedPlacementArea.generatedLayout.requestedCapacityKW ?? 0).toFixed(1)} kW
-                </span>
-                {" · "}
-                Mode:{" "}
-                {selectedPlacementArea.generatedLayout.generateMode === "maximum"
-                  ? "Maximum"
-                  : "Target Capacity"}
-              </p>
-            </div>
-          )}
-
-          {/* Stale + Generate / Regenerate */}
-          {layoutIsStale && hasGeneratedLayout && (
-            <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-[#FFB547]/10 border border-[#FFB547]/30">
-              <FiAlertCircle size={14} className="text-[#FFB547] shrink-0 mt-0.5" />
-              <p className="text-[11px] text-[#94A3B8] leading-relaxed">
-                Layout configuration changed. Regenerate to apply module, orientation, or capacity updates.
-              </p>
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => onGenerateLayout()}
-            disabled={
-              !placementReady
-              || activeAreas.length === 0
-              || capacityPreview?.exceeds
-            }
-            className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-xl text-[13px] font-semibold bg-[#4F8CFF] text-white hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            <FiRefreshCw size={15} />
-            {hasGeneratedLayout ? "Regenerate Layout" : "Generate Layout"}
-          </button>
-
           {capacityPreview?.exceeds && (
             <button
               type="button"
@@ -528,6 +395,18 @@ function PlacementAreaConfigPanel({
               Generate Maximum Layout ({capacityPreview.maxPanels} panels · {capacityPreview.maxCapacityKW.toFixed(1)} kW)
             </button>
           )}
+
+        </>
+      )}
+
+      {engineeringAreaSummaries.length > 0 && (
+        <>
+          {DIVIDER}
+          <LayoutSummarySection
+            areaSummaries={engineeringAreaSummaries}
+            projectSummary={hasGeneratedLayout ? projectEngineeringSummary : null}
+            selectedAreaId={selectedPlacementArea?.id ?? null}
+          />
         </>
       )}
     </>
@@ -556,7 +435,7 @@ export default function PanelsPanel({
   placementAreas = [],
   selectedPlacementArea = null,
   onSelectPlacementArea = () => {},
-  onSetPlacementAreaUseProjectDefaults = () => {},
+  onResetAreaToProjectTemplate = () => {},
   onPatchPlacementAreaConfig = () => {},
   layoutIsStale = false,
   hasGeneratedLayout = false,
@@ -568,9 +447,22 @@ export default function PanelsPanel({
   onUpdateDesign = () => {},
   panelShadingRefinement = null,
 }) {
-  const areaLayoutSummaries = useMemo(
-    () => buildPlacementAreaLayoutSummaries(placementAreas, panelLayout),
-    [placementAreas, panelLayout],
+  const engineeringAreaSummaries = useMemo(
+    () => (usePlacementAreaPanelWorkflow
+      ? buildEngineeringAreaSummaries(
+        placementAreas,
+        hasGeneratedLayout ? panelLayout : null,
+        placementReady,
+      )
+      : []),
+    [usePlacementAreaPanelWorkflow, hasGeneratedLayout, placementAreas, panelLayout, placementReady],
+  );
+
+  const projectEngineeringSummary = useMemo(
+    () => (usePlacementAreaPanelWorkflow && hasGeneratedLayout
+      ? computeProjectEngineeringSummary(placementAreas, panelLayout)
+      : null),
+    [usePlacementAreaPanelWorkflow, hasGeneratedLayout, placementAreas, panelLayout],
   );
 
   const selectedPlacedPanel = useMemo(() => {
@@ -579,6 +471,16 @@ export default function PanelsPanel({
       (p) => (p.slotId ?? p.id) === selectedPanelSlotId,
     ) ?? null;
   }, [selectedPanelSlotId, panelLayout]);
+
+  const selectedPanelDisplay = useMemo(
+    () => buildSelectedPanelDisplayInfo(
+      selectedPlacedPanel,
+      placementAreas,
+      panelLayout,
+      panelArrays,
+    ),
+    [selectedPlacedPanel, placementAreas, panelLayout, panelArrays],
+  );
 
   const capacity = useMemo(() => {
     if (usePlacementAreaPanelWorkflow && hasGeneratedLayout) {
@@ -596,6 +498,7 @@ export default function PanelsPanel({
 
   const [editingArrayId, setEditingArrayId] = useState(null);
   const [editValue, setEditValue] = useState("");
+  const [defaultsDialogOpen, setDefaultsDialogOpen] = useState(false);
 
   const arrayKwTotal = useMemo(
     () => panelArrays.reduce((s, a) => s + a.systemKw, 0),
@@ -639,13 +542,46 @@ export default function PanelsPanel({
 
   return (
     <PanelShell>
-      <PanelHeader
-        label="Panels"
-        subtitle={usePlacementAreaPanelWorkflow
-          ? "Configure modules · generate layout"
-          : "Auto layout · arrays · manual edits"}
-        pill={pill}
-      />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-[9px] font-bold tracking-[0.22em] text-[#94A3B8] uppercase">
+            Panels
+          </h2>
+          <p className="mt-1 text-[#94A3B8] text-xs">
+            {usePlacementAreaPanelWorkflow
+              ? "Configure modules · generate layout"
+              : "Auto layout · arrays · manual edits"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {usePlacementAreaPanelWorkflow && (
+            <button
+              type="button"
+              onClick={() => setDefaultsDialogOpen(true)}
+              className="p-2 rounded-lg border border-[#23324A] text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-[#162338] transition-colors"
+              title="Defaults for new areas"
+              aria-label="Defaults for new areas"
+            >
+              <FiSettings size={14} />
+            </button>
+          )}
+          {pill ?? (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#00E38C]/10 border border-[#00E38C]/25">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#00E38C]" />
+              <span className="text-[10px] font-semibold text-[#00E38C]">Ready</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {usePlacementAreaPanelWorkflow && (
+        <ProjectDefaultsDialog
+          open={defaultsDialogOpen}
+          onClose={() => setDefaultsDialogOpen(false)}
+          projectPanelDefaults={projectPanelDefaults}
+          onUpdateProjectPanelDefaults={onUpdateProjectPanelDefaults}
+        />
+      )}
 
       {DIVIDER}
 
@@ -654,17 +590,14 @@ export default function PanelsPanel({
           placementAreas={placementAreas}
           selectedPlacementArea={selectedPlacementArea}
           onSelectPlacementArea={onSelectPlacementArea}
-          projectPanelDefaults={projectPanelDefaults}
-          onUpdateProjectPanelDefaults={onUpdateProjectPanelDefaults}
-          onSetPlacementAreaUseProjectDefaults={onSetPlacementAreaUseProjectDefaults}
+          onResetAreaToProjectTemplate={onResetAreaToProjectTemplate}
           onPatchPlacementAreaConfig={onPatchPlacementAreaConfig}
-          layoutIsStale={layoutIsStale}
           hasGeneratedLayout={hasGeneratedLayout}
-          generatedPanelLayout={generatedPanelLayout}
           onGenerateLayout={onGenerateLayout}
           onGenerateMaximumLayout={onGenerateMaximumLayout}
           placementReady={placementReady}
-          areaLayoutSummaries={areaLayoutSummaries}
+          engineeringAreaSummaries={engineeringAreaSummaries}
+          projectEngineeringSummary={projectEngineeringSummary}
         />
       ) : (
         <>
@@ -795,26 +728,49 @@ export default function PanelsPanel({
       )}
 
       {/* DIRTY banner after layout regeneration */}
-      {usePlacementAreaPanelWorkflow && selectedPlacedPanel && (
+      {usePlacementAreaPanelWorkflow && selectedPanelDisplay && (
         <>
           <div className="flex flex-col gap-2 px-3 py-3 rounded-xl bg-[rgba(79,140,255,0.08)] border border-[#4F8CFF]/30">
             <span className="text-[9px] font-bold tracking-[0.18em] text-[#4F8CFF] uppercase">
               Selected Panel
             </span>
             <div className="grid grid-cols-2 gap-2 text-[10px] text-[#94A3B8]">
-              <p>Slot: <span className="text-[#F8FAFC] tabular-nums">{selectedPanelSlotId}</span></p>
-              <p className="capitalize">
-                Orientation:{" "}
-                <span className="text-[#F8FAFC]">
-                  {inferPanelOrientation(selectedPlacedPanel)}
+              <p>
+                Placement Area:{" "}
+                <span className="text-[#F8FAFC]">{selectedPanelDisplay.placementAreaName}</span>
+              </p>
+              <p>
+                Panel Number:{" "}
+                <span className="text-[#F8FAFC] tabular-nums">
+                  {selectedPanelDisplay.panelNumber ?? "—"}
                 </span>
               </p>
               <p>
-                Size:{" "}
+                Module:{" "}
+                <span className="text-[#F8FAFC]">{selectedPanelDisplay.moduleLabel}</span>
+              </p>
+              <p className="capitalize">
+                Orientation:{" "}
+                <span className="text-[#F8FAFC]">{selectedPanelDisplay.orientation}</span>
+              </p>
+              <p>
+                Dimensions:{" "}
                 <span className="text-[#F8FAFC] tabular-nums">
-                  {selectedPlacedPanel.width?.toFixed(2)} × {selectedPlacedPanel.length?.toFixed(2)} m
+                  {selectedPanelDisplay.dimensionsLabel}
                 </span>
               </p>
+              <p>
+                Capacity:{" "}
+                <span className="text-[#F8FAFC] tabular-nums">
+                  {selectedPanelDisplay.capacityLabel}
+                </span>
+              </p>
+              {selectedPanelDisplay.arrayLabel && (
+                <p className="col-span-2">
+                  Array:{" "}
+                  <span className="text-[#F8FAFC]">{selectedPanelDisplay.arrayLabel}</span>
+                </p>
+              )}
             </div>
           </div>
           {DIVIDER}
@@ -843,7 +799,7 @@ export default function PanelsPanel({
         <MountHeightEngineeringSection panelShadingRefinement={panelShadingRefinement} />
       )}
 
-      {hasGeneratedLayout && capacity.panelCount > 0 && (
+      {hasGeneratedLayout && capacity.panelCount > 0 && !usePlacementAreaPanelWorkflow && (
         <>
           <div className="flex flex-col gap-2 px-3 py-4 rounded-xl bg-[#4F8CFF]/8 border border-[#4F8CFF]/30">
             <span className="text-[9px] font-bold tracking-[0.2em] text-[#4F8CFF] uppercase">
@@ -867,42 +823,6 @@ export default function PanelsPanel({
                 accent="text-[#00E38C]"
               />
             </div>
-          </div>
-          {DIVIDER}
-        </>
-      )}
-
-      {usePlacementAreaPanelWorkflow && hasGeneratedLayout && areaLayoutSummaries.length > 0 && (
-        <>
-          <div className="flex flex-col gap-2">
-            <span className={SEC_LABEL} style={{ marginBottom: 0 }}>Current Layout</span>
-            <p className="text-[10px] text-[#4a5c75] leading-relaxed -mt-1">
-              Current placed panels on the roof — updates with manual edits.
-            </p>
-            {areaLayoutSummaries.map((row) => (
-              <div
-                key={row.id}
-                className="flex flex-col gap-2 px-3 py-3 rounded-xl bg-[rgba(7,17,32,0.5)] border border-[#23324A]"
-              >
-                <span className="text-[12px] font-semibold text-[#F8FAFC]">{row.name}</span>
-                <div className="grid grid-cols-2 gap-2">
-                  <KpiCard
-                    label="Current Panels"
-                    value={String(row.panelCount)}
-                    accent="text-[#F8FAFC]"
-                  />
-                  <KpiCard
-                    label="Current Capacity"
-                    value={`${row.capacityKw.toFixed(2)} kW`}
-                    accent="text-[#4F8CFF]"
-                  />
-                </div>
-                <div className="text-[10px] text-[#94A3B8] leading-relaxed space-y-0.5">
-                  <p>Module: {row.moduleLabel}</p>
-                  <p className="capitalize">Orientation: {row.orientation}</p>
-                </div>
-              </div>
-            ))}
           </div>
           {DIVIDER}
         </>
@@ -942,11 +862,11 @@ export default function PanelsPanel({
       <InstructionList items={
         usePlacementAreaPanelWorkflow
           ? [
-              "Set target capacity (kW) — only the required panels are placed",
-              "Preview shows required vs maximum panels before generation",
-              "Click Generate Layout — places exactly the required panel count",
-              "If target exceeds available space, use Generate Maximum Layout",
-              "Tilt, azimuth, and mount settings are stored for future phases",
+              "Select a placement area, then set its target capacity and module",
+              "Capacity preview shows required vs maximum panels before generation",
+              "Generate Layout places panels for all areas using each area's own settings",
+              "Use the gear icon to change defaults for future placement areas only",
+              "Reset to Template on an area applies those defaults to that area",
               "Run Update Design after manual panel edits to refresh energy and financials",
             ]
           : [

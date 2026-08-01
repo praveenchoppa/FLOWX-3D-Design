@@ -1,10 +1,10 @@
 /**
- * cableRouter.js — P6+ logical-to-routed cable path generation and length computation.
+ * cableRouter.js — P6+ homerun routing (logical-to-routed paths with termination geometry).
  *
- * Do NOT import or call from Task A scaffolding.
+ * P5D intra-string wiring lives in services/intraStringWiring.js (geometry-backed only).
  */
 
-/** @throws always — not implemented until P6 */
+/** @throws always — not implemented until homerun termination geometry (P5E+) */
 export function routeCables() {
-  throw new Error("cableRouter wired in P6 — not available in Task A");
+  throw new Error("homerun cableRouter wired in P5E+ — intra-string wiring is in intraStringWiring.js");
 }

@@ -1,10 +1,37 @@
 /**
- * useArraySelection.js — P1+ hook for array/string selection state derived from electricalStore.
- *
- * Do NOT import or call from Task A scaffolding.
+ * useArraySelection.js — Array selection derived from electricalStore.
  */
 
-/** @throws always — not implemented until P1 Task B */
+import { useCallback } from "react";
+
+import { useElectricalStore } from "./useElectricalStore.js";
+
 export function useArraySelection() {
-  throw new Error("useArraySelection wired in P1 Task B — not available in Task A");
+  const {
+    arrays,
+    selectedArrayIds,
+    selectedArray,
+    selectedArrays,
+    selectArray,
+  } = useElectricalStore();
+
+  const selectArrayOnly = useCallback(
+    (arrayId) => selectArray(arrayId, { additive: false }),
+    [selectArray],
+  );
+
+  const toggleArrayInSelection = useCallback(
+    (arrayId) => selectArray(arrayId, { additive: true }),
+    [selectArray],
+  );
+
+  return {
+    arrays,
+    selectedArrayIds,
+    selectedArray,
+    selectedArrays,
+    selectArray,
+    selectArrayOnly,
+    toggleArrayInSelection,
+  };
 }

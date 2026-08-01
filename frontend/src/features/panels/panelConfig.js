@@ -1,9 +1,9 @@
 /**
- * panelConfig.js — Project panel defaults + per–Placement Area overrides (pure).
+ * panelConfig.js — Project template defaults + per–Placement Area owned config (pure).
  *
- * Configuration is stored separately from layout generation.  Only moduleId and
- * orientation affect placement footprint; tilt / azimuth / mount are stored for
- * future phases.
+ * Each placement area stores a full PlacementAreaPanelConfig snapshot.
+ * Project defaults are a template for NEW areas only — never the live source
+ * of truth for existing areas during regeneration.
  */
 
 import { DEFAULT_PANEL_ID, getPanelById, resolvePanelId } from "./panelTypes.js";
@@ -45,10 +45,13 @@ export const MOUNT_TYPES = /** @type {const} */ ({
  * @property {CapacityDesignGoal} designGoal
  */
 
+/** Per-area owned config — same shape as project template defaults. */
+/** @typedef {ProjectPanelDefaults} PlacementAreaPanelConfig */
+
 /**
- * @typedef {object} PlacementAreaPanelProperties
+ * @typedef {object} LegacyPlacementAreaPanelProperties
  * @property {boolean} useProjectDefaults
- * @property {ProjectPanelDefaults|null} override
+ * @property {Partial<ProjectPanelDefaults>|null} override
  */
 
 export const DEFAULT_PROJECT_PANEL_DEFAULTS = /** @type {ProjectPanelDefaults} */ ({
@@ -61,49 +64,131 @@ export const DEFAULT_PROJECT_PANEL_DEFAULTS = /** @type {ProjectPanelDefaults} *
   designGoal:  { ...DEFAULT_DESIGN_GOAL },
 });
 
-/** Fresh panelProperties for a new Placement Area — inherits project defaults. */
-export function createDefaultPanelProperties() {
+/** Normalize any partial config into a complete owned area config. */
+export function normalizePlacementAreaConfig(partial = {}) {
+  const goal = partial.designGoal ?? {};
   return {
-    useProjectDefaults: true,
-    override:           null,
+    moduleId:    resolvePanelId(partial.moduleId ?? DEFAULT_PANEL_ID),
+    orientation: partial.orientation ?? ORIENTATIONS.PORTRAIT,
+    tilt:        Number(partial.tilt ?? DEFAULT_PROJECT_PANEL_DEFAULTS.tilt),
+    azimuth:     Number(partial.azimuth ?? DEFAULT_PROJECT_PANEL_DEFAULTS.azimuth),
+    mountType:   partial.mountType ?? MOUNT_TYPES.FLUSH,
+    mountHeight: Math.max(0, Number(partial.mountHeight ?? 0)),
+    designGoal:  {
+      type:             "capacity",
+      targetCapacityKW: Math.max(
+        0,
+        Number(goal.targetCapacityKW ?? DEFAULT_DESIGN_GOAL.targetCapacityKW) || 0,
+      ),
+    },
   };
 }
 
+/** Snapshot project template defaults for a new placement area. */
+export function createPlacementAreaConfigFromTemplate(projectDefaults) {
+  return normalizePlacementAreaConfig(projectDefaults ?? DEFAULT_PROJECT_PANEL_DEFAULTS);
+}
+
 /**
- * Resolve effective configuration for one placement area.
+ * @deprecated Use createPlacementAreaConfigFromTemplate — kept for import compatibility.
+ */
+export function createDefaultPanelProperties(projectDefaults) {
+  return createPlacementAreaConfigFromTemplate(projectDefaults);
+}
+
+/** True when panelProperties uses the legacy linked-defaults shape. */
+export function isLegacyPanelProperties(panelProperties) {
+  if (!panelProperties || typeof panelProperties !== "object") return false;
+  if (Object.prototype.hasOwnProperty.call(panelProperties, "useProjectDefaults")) {
+    return true;
+  }
+  if (panelProperties.override != null && panelProperties.moduleId == null) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Migrate one placement area from legacy linked config to owned config.
+ * Prefers generatedLayout snapshot when the area was previously generated.
  *
- * @param {ProjectPanelDefaults} projectDefaults
- * @param {PlacementAreaPanelProperties|null|undefined} panelProperties
- * @returns {ProjectPanelDefaults}
+ * @param {object} area
+ * @param {ProjectPanelDefaults} projectDefaults  template at migration time (new areas only)
+ */
+export function migratePlacementAreaConfig(area, projectDefaults = DEFAULT_PROJECT_PANEL_DEFAULTS) {
+  const props = area.panelProperties;
+  const template = createPlacementAreaConfigFromTemplate(projectDefaults);
+
+  if (!isLegacyPanelProperties(props)) {
+    return normalizePlacementAreaConfig(props);
+  }
+
+  const gl = area.generatedLayout;
+
+  if (props.useProjectDefaults !== false) {
+    if (gl) {
+      return normalizePlacementAreaConfig({
+        ...template,
+        moduleId:    gl.moduleId ?? template.moduleId,
+        orientation: gl.orientation ?? template.orientation,
+        designGoal:  {
+          type:             "capacity",
+          targetCapacityKW: gl.requestedCapacityKW ?? template.designGoal.targetCapacityKW,
+        },
+      });
+    }
+    return { ...template };
+  }
+
+  return normalizePlacementAreaConfig({
+    ...template,
+    ...(props.override ?? {}),
+  });
+}
+
+/** Migrate all placement areas that still use the legacy shape. */
+export function migratePlacementAreas(placementAreas, projectDefaults) {
+  return (placementAreas ?? []).map((area) => {
+    if (!isLegacyPanelProperties(area.panelProperties)) return area;
+    return {
+      ...area,
+      panelProperties: migratePlacementAreaConfig(area, projectDefaults),
+    };
+  });
+}
+
+/**
+ * Read the owned configuration stored on a placement area.
+ * Regeneration and previews must use ONLY this — never live project defaults.
+ *
+ * @param {PlacementAreaPanelConfig|LegacyPlacementAreaPanelProperties|null|undefined} panelProperties
+ */
+export function resolvePlacementAreaConfig(panelProperties) {
+  if (!panelProperties || isLegacyPanelProperties(panelProperties)) {
+    return normalizePlacementAreaConfig(DEFAULT_PROJECT_PANEL_DEFAULTS);
+  }
+  return normalizePlacementAreaConfig(panelProperties);
+}
+
+/**
+ * @deprecated Regeneration uses resolvePlacementAreaConfig. Kept for transitional call sites.
  */
 export function resolveEffectivePanelConfig(projectDefaults, panelProperties) {
-  const base = { ...projectDefaults, moduleId: resolvePanelId(projectDefaults.moduleId) };
-  if (!panelProperties || panelProperties.useProjectDefaults !== false) {
-    return base;
+  if (isLegacyPanelProperties(panelProperties)) {
+    return migratePlacementAreaConfig({ panelProperties, generatedLayout: null }, projectDefaults);
   }
-  const o = panelProperties.override ?? {};
-  return {
-    ...base,
-    ...o,
-    moduleId: resolvePanelId(o.moduleId ?? base.moduleId),
-    designGoal: o.designGoal ?? base.designGoal,
-  };
+  return resolvePlacementAreaConfig(panelProperties);
 }
 
-/**
- * Resolve effective design goal for one placement area.
- *
- * @param {ProjectPanelDefaults} projectDefaults
- * @param {PlacementAreaPanelProperties|null|undefined} panelProperties
- * @returns {CapacityDesignGoal}
- */
-export function resolveEffectiveDesignGoal(projectDefaults, panelProperties) {
-  const cfg = resolveEffectivePanelConfig(projectDefaults, panelProperties);
-  const kw = cfg.designGoal?.targetCapacityKW ?? DEFAULT_DESIGN_GOAL.targetCapacityKW;
-  return {
-    type:             "capacity",
-    targetCapacityKW: Math.max(0, Number(kw) || 0),
-  };
+/** Design goal from owned area config only. */
+export function resolveEffectiveDesignGoal(_projectDefaults, panelProperties) {
+  const cfg = resolvePlacementAreaConfig(panelProperties);
+  return cfg.designGoal;
+}
+
+/** Owned-area design goal (preferred). */
+export function resolveAreaDesignGoal(panelProperties) {
+  return resolvePlacementAreaConfig(panelProperties).designGoal;
 }
 
 /**
@@ -127,26 +212,32 @@ export function panelForPlacement(moduleId, orientation) {
 }
 
 /**
- * Fingerprint of module + orientation across all active placement areas.
- * Used to detect stale layouts without regenerating on tilt/mount changes.
+ * Fingerprint of module + orientation + capacity across all active placement areas.
+ * Uses each area's stored config only.
  *
- * @param {ProjectPanelDefaults} projectDefaults
  * @param {object[]} placementAreas
  */
-export function placementLayoutFingerprint(projectDefaults, placementAreas) {
+export function placementLayoutFingerprint(placementAreas) {
   const active = (placementAreas ?? []).filter((a) => !a.deleted);
   return JSON.stringify({
     areas: active.map((a) => {
-      const cfg = resolveEffectivePanelConfig(projectDefaults, a.panelProperties);
-      const goal = resolveEffectiveDesignGoal(projectDefaults, a.panelProperties);
+      const cfg = resolvePlacementAreaConfig(a.panelProperties);
       return {
-        id: a.id,
-        moduleId: cfg.moduleId,
+        id:          a.id,
+        moduleId:    cfg.moduleId,
         orientation: cfg.orientation,
-        designGoal: goal,
+        designGoal:  cfg.designGoal,
       };
     }),
   });
+}
+
+/**
+ * @deprecated Pass placementAreas only. Kept for call-site transition.
+ */
+export function placementLayoutFingerprintLegacy(projectDefaults, placementAreas) {
+  void projectDefaults;
+  return placementLayoutFingerprint(placementAreas);
 }
 
 /**
@@ -170,10 +261,9 @@ export function regionIdsForPlacementArea(area, installableRegions = []) {
  *
  * @param {object} area
  * @param {object|null} panelLayout
- * @param {ProjectPanelDefaults} projectDefaults
  */
-export function computeAreaLayoutStats(area, panelLayout, projectDefaults) {
-  const cfg = resolveEffectivePanelConfig(projectDefaults, area.panelProperties);
+export function computeAreaLayoutStats(area, panelLayout) {
+  const cfg = resolvePlacementAreaConfig(area.panelProperties);
   const mod = getPanelById(cfg.moduleId);
   const powerW = mod?.powerW ?? mod?.power ?? 0;
 

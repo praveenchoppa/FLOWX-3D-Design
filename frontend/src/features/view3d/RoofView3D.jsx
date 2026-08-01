@@ -56,6 +56,9 @@ import PlacementAreasLayer  from "./PlacementAreasLayer";
 import DrawPlacementAreaLayer from "./DrawPlacementAreaLayer";
 import PlacementAreaPolygonEditor from "./PlacementAreaPolygonEditor";
 import PlacedPanels         from "./PlacedPanels";
+import ConnectionLayer      from "../ElectricalDesign/components/Canvas/ConnectionLayer.jsx";
+import TerminationPointLayer from "../ElectricalDesign/components/Canvas/TerminationPointLayer.jsx";
+import ArrayToolsToolbar    from "../ElectricalDesign/components/Canvas/ArrayToolsToolbar.jsx";
 import PanelGhostSlots      from "./PanelGhostSlots";
 import MeasurementOverlay3D from "../measurements/MeasurementOverlay3D";
 
@@ -1099,10 +1102,31 @@ function Scene({
   ghostPanelSlots  = [],
   zonesDimmed      = false,
   panelsInteractive = false,
+  electricalPanelPicking = false,
+  electricalTerminationActive = false,
+  activeArrayPanelIds = null,
+  selectedElectricalPanelIds = [],
+  stringHighlightPanelIds = [],
+  stringWiringSegments = [],
+  homerunWiringSegments = [],
+  selectedElectricalStringId = null,
+  terminationPoint = null,
+  terminationPlacementMode = false,
+  terminationPointSelected = false,
+  onPlaceTerminationPoint = () => {},
+  onMoveTerminationPoint = () => {},
+  onSelectTerminationPoint = () => {},
+  onTerminationDragActiveChange = () => {},
+  terminationDragActive = false,
+  designCentre = null,
+  onElectricalSelectPanel = () => {},
+  onClearElectricalPanelSelection = () => {},
   panelEditMode       = "select",
   selectedPanelSlotId = null,
   onSelectPanelSlot   = () => {},
   selectedArrayId     = null,
+  arrayHighlightPanelIds = null,
+  dimElectricalArrays = false,
   onAddPanelSlot      = () => {},
   panelMoveEnabled    = false,
   panelSnapSlots      = [],
@@ -1372,15 +1396,43 @@ function Scene({
           roofSections={roofSections}
           panelVisualContext={panelVisualContext}
           interactive={panelsInteractive && (presentationMode || panelEditMode === "select")}
+          electricalPanelPicking={electricalPanelPicking && !presentationMode}
+          activeArrayPanelIds={activeArrayPanelIds}
+          selectedElectricalPanelIds={selectedElectricalPanelIds}
+          stringHighlightPanelIds={stringHighlightPanelIds}
+          onElectricalSelectPanel={onElectricalSelectPanel}
           selectedSlotId={presentationMode ? null : selectedPanelSlotId}
-          arrayHighlightRegionId={selectedArrayId}
-          dimInactiveArrays={presentationMode}
+          arrayHighlightRegionId={arrayHighlightPanelIds?.length ? null : selectedArrayId}
+          arrayHighlightPanelIds={arrayHighlightPanelIds}
+          dimInactiveArrays={dimElectricalArrays || presentationMode}
           onSelectPanel={onSelectPanelSlot}
           enableMoveDrag={panelMoveEnabled && !presentationMode && panelEditMode === "select"}
           snapSlots={panelSnapSlots}
           onMovePanel={onMovePanel}
           onDragActiveChange={onPanelDragActiveChange}
           nearestSnapSlotFn={nearestSnapSlotFn}
+        />
+      )}
+
+      {electricalPanelPicking && (stringWiringSegments.length > 0 || homerunWiringSegments.length > 0) && (
+        <ConnectionLayer
+          intraSegments={stringWiringSegments}
+          homerunSegments={homerunWiringSegments}
+          selectedStringId={selectedElectricalStringId}
+        />
+      )}
+
+      {electricalTerminationActive && (
+        <TerminationPointLayer
+          terminationPoint={terminationPoint}
+          placementMode={terminationPlacementMode}
+          selected={terminationPointSelected}
+          roofSections={roofSections}
+          centre={designCentre ?? centre}
+          onPlace={onPlaceTerminationPoint}
+          onMove={onMoveTerminationPoint}
+          onSelect={onSelectTerminationPoint}
+          onDragActiveChange={onTerminationDragActiveChange}
         />
       )}
 
@@ -1434,7 +1486,7 @@ function Scene({
         cameraPreset={cameraPreset}
         roofSections={roofSections}
         centre={centre}
-        panelDragActive={panelDragActive}
+        panelDragActive={panelDragActive || terminationDragActive}
       />
     </>
   );
@@ -1508,12 +1560,33 @@ export default function RoofView3D({
   ghostPanelSlots    = [],
   zonesDimmed        = false,
   panelsInteractive  = false,
+  electricalPanelPicking = false,
+  electricalTerminationActive = false,
+  activeArrayPanelIds = null,
+  selectedElectricalPanelIds = [],
+  stringHighlightPanelIds = [],
+  stringWiringSegments = [],
+  homerunWiringSegments = [],
+  selectedElectricalStringId = null,
+  terminationPoint = null,
+  terminationPlacementMode = false,
+  terminationPointSelected = false,
+  onPlaceTerminationPoint = () => {},
+  onMoveTerminationPoint = () => {},
+  onSelectTerminationPoint = () => {},
+  onTerminationDragActiveChange = () => {},
+  terminationDragActive = false,
+  designCentre = null,
+  onElectricalSelectPanel = () => {},
+  onClearElectricalPanelSelection = () => {},
   panelEditMode      = "select",
   onSetPanelEditMode = () => {},
   selectedPanelSlotId = null,
   onSelectPanelSlot   = () => {},
   onDeselectPanelSlot = () => {},
   selectedArrayId     = null,
+  arrayHighlightPanelIds = null,
+  dimElectricalArrays = false,
   onDeselectArray     = () => {},
   onDeletePanelSlot   = () => {},
   onAddPanelSlot      = () => {},
@@ -1538,6 +1611,11 @@ export default function RoofView3D({
   measurementStepVisibility = {},
   measureEditRoof     = false,
   showPanelEditToolbar = false,
+  showArrayToolsToolbar = false,
+  selectedElectricalArray = null,
+  onArrayRotate = () => {},
+  onArraySetFrozen = () => {},
+  hidePlacementAreaEditToolbar = false,
 }) {
   // Design centre: shared origin for all section coordinate conversions.
   // Only recomputes when coordinates change, not on every metadata edit.
@@ -1560,7 +1638,7 @@ export default function RoofView3D({
       style={{
         background:
           "radial-gradient(ellipse at 50% 22%, #1e3050 0%, #0e1d32 40%, #070f1b 100%)",
-        cursor: (placing || isDrawingBizZone || isDrawingPlacementArea) ? "crosshair" : "default",
+        cursor: (placing || isDrawingBizZone || isDrawingPlacementArea || terminationPlacementMode) ? "crosshair" : "default",
       }}
     >
 
@@ -1587,6 +1665,9 @@ export default function RoofView3D({
               if (panelsInteractive) {
                 onDeselectPanelSlot();
                 onDeselectArray();
+              }
+              if (electricalPanelPicking) {
+                onClearElectricalPanelSelection();
               }
             }}
           >
@@ -1644,16 +1725,37 @@ export default function RoofView3D({
               ghostPanelSlots={ghostPanelSlots}
               zonesDimmed={zonesDimmed}
               panelsInteractive={panelsInteractive}
+              electricalPanelPicking={electricalPanelPicking}
+              electricalTerminationActive={electricalTerminationActive}
+              activeArrayPanelIds={activeArrayPanelIds}
+              selectedElectricalPanelIds={selectedElectricalPanelIds}
+              stringHighlightPanelIds={stringHighlightPanelIds}
+              stringWiringSegments={stringWiringSegments}
+              homerunWiringSegments={homerunWiringSegments}
+              selectedElectricalStringId={selectedElectricalStringId}
+              terminationPoint={terminationPoint}
+              terminationPlacementMode={terminationPlacementMode}
+              terminationPointSelected={terminationPointSelected}
+              onPlaceTerminationPoint={onPlaceTerminationPoint}
+              onMoveTerminationPoint={onMoveTerminationPoint}
+              onSelectTerminationPoint={onSelectTerminationPoint}
+              onTerminationDragActiveChange={onTerminationDragActiveChange}
+              terminationDragActive={terminationDragActive}
+              designCentre={designCentre ?? centre}
+              onElectricalSelectPanel={onElectricalSelectPanel}
+              onClearElectricalPanelSelection={onClearElectricalPanelSelection}
               panelEditMode={panelEditMode}
               selectedPanelSlotId={selectedPanelSlotId}
               onSelectPanelSlot={onSelectPanelSlot}
               selectedArrayId={selectedArrayId}
+              arrayHighlightPanelIds={arrayHighlightPanelIds}
+              dimElectricalArrays={dimElectricalArrays}
               onAddPanelSlot={onAddPanelSlot}
               panelMoveEnabled={panelMoveEnabled}
               panelSnapSlots={panelSnapSlots}
               onMovePanel={onMovePanel}
               onPanelDragActiveChange={onPanelDragActiveChange}
-              panelDragActive={panelDragActive}
+              panelDragActive={panelDragActive || terminationDragActive}
               nearestSnapSlotFn={nearestSnapSlotFn}
               presentationMode={presentationMode}
               presentationLayers={presentationLayers}
@@ -1670,7 +1772,7 @@ export default function RoofView3D({
       )}
 
       {/* ── Placement Area edit toolbar ─────────────────────────────────── */}
-      {selectedPlacementAreaId && !isDrawingBizZone && !isDrawingPlacementArea && showPlacementAreas && (
+      {selectedPlacementAreaId && !isDrawingBizZone && !isDrawingPlacementArea && showPlacementAreas && !hidePlacementAreaEditToolbar && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-1 p-1 bg-[rgba(16,27,45,0.88)] backdrop-blur-xl border border-[#23324A] rounded-full shadow-lg">
           <button
             onClick={() => onSetPlacementAreaEditMode(PLACEMENT_AREA_EDIT_MODES.VERTICES)}
@@ -1731,6 +1833,15 @@ export default function RoofView3D({
             <span>Move</span>
           </button>
         </div>
+      )}
+
+      {/* ── Step 7 array tools (rotate / freeze) ─────────────────────────── */}
+      {showArrayToolsToolbar && !presentationMode && (
+        <ArrayToolsToolbar
+          array={selectedElectricalArray}
+          onRotateArray={onArrayRotate}
+          onSetArrayFrozen={onArraySetFrozen}
+        />
       )}
 
       {/* ── Panel edit toolbar (Step 6B-1) ─────────────────────────────── */}
@@ -1887,6 +1998,14 @@ export default function RoofView3D({
         <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-xl bg-[rgba(255,181,71,0.12)] backdrop-blur-md border border-[#FFB547]/35">
           <span className="text-[11px] text-[#ffe8c4]">
             Array highlighted · click empty space to reset
+          </span>
+        </div>
+      )}
+
+      {terminationPlacementMode && !presentationMode && (
+        <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 z-10 px-4 py-2 rounded-xl bg-[rgba(0,227,140,0.12)] backdrop-blur-md border border-[#00E38C]/35">
+          <span className="text-[11px] text-[#bbf7d0]">
+            Click the workspace to place the <b>Termination Point</b>
           </span>
         </div>
       )}

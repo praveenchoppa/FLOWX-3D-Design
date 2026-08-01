@@ -23,6 +23,18 @@ export const DEFAULT_PANEL_ID = "longi-himo6-550";
  * @property {number} weightKg
  * @property {number} maxVoltage
  * @property {number} maxCurrent
+ *
+ * Future operating specs (not yet in catalog — add per exact module SKU):
+ * Operating electrical calculations (Voltage, Current, Operating Power) require
+ * verified panel STC specifications (vmpV, impA) from the manufacturer datasheet
+ * for the exact module SKU. These values must not be inferred from powerW or
+ * estimated. Until verified specifications exist, only Installed DC Capacity and
+ * DC/AC Ratio are computed, while operating metrics display "—".
+ *
+ * // @property {number} [vmpV]  STC maximum power voltage (V)
+ * // @property {number} [impA]  STC maximum power current (A)
+ * // @property {number|null} [vocV]  STC open-circuit voltage (V)
+ * // @property {number|null} [iscA]  STC short-circuit current (A)
  */
 
 /** @type {PanelModule[]} */

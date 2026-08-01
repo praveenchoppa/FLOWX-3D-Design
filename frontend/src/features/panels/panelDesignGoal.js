@@ -9,8 +9,7 @@ import { computePanelLayout } from "./panelPlacement.js";
 import {
   panelForPlacement,
   regionIdsForPlacementArea,
-  resolveEffectivePanelConfig,
-  resolveEffectiveDesignGoal,
+  resolvePlacementAreaConfig,
 } from "./panelConfig.js";
 
 /** @typedef {"capacity"} DesignGoalType */
@@ -54,10 +53,9 @@ export function requiredPanelsForCapacity(targetCapacityKW, powerW) {
  *
  * @param {object|null} placementReady
  * @param {object} area
- * @param {import("./panelConfig.js").ProjectPanelDefaults} projectDefaults
  */
-export function computeFullAreaLayout(placementReady, area, projectDefaults) {
-  const cfg = resolveEffectivePanelConfig(projectDefaults, area.panelProperties);
+export function computeFullAreaLayout(placementReady, area) {
+  const cfg = resolvePlacementAreaConfig(area.panelProperties);
   const panel = panelForPlacement(cfg.moduleId, cfg.orientation);
   if (!panel || !placementReady) return null;
 
@@ -75,20 +73,19 @@ export function computeFullAreaLayout(placementReady, area, projectDefaults) {
 }
 
 /**
- * Live preview before generation.
+ * Live preview before generation — uses the area's owned config only.
  *
  * @param {object|null} placementReady
- * @param {import("./panelConfig.js").ProjectPanelDefaults} projectDefaults
  * @param {object} area
  */
-export function computeCapacityPreview(placementReady, projectDefaults, area) {
-  const cfg = resolveEffectivePanelConfig(projectDefaults, area.panelProperties);
-  const designGoal = resolveEffectiveDesignGoal(projectDefaults, area.panelProperties);
+export function computeCapacityPreview(placementReady, area) {
+  const cfg = resolvePlacementAreaConfig(area.panelProperties);
+  const designGoal = cfg.designGoal;
   const panel = panelForPlacement(cfg.moduleId, cfg.orientation);
   const powerW = panel?.powerW ?? panel?.power ?? 0;
   const targetCapacityKW = designGoal.targetCapacityKW ?? 0;
 
-  const fullLayout = computeFullAreaLayout(placementReady, area, projectDefaults);
+  const fullLayout = computeFullAreaLayout(placementReady, area);
   const maxPanels = fullLayout?.placedPanels?.length ?? 0;
   const maxCapacityKW = maxPanels > 0 && powerW > 0
     ? +((maxPanels * powerW) / 1000).toFixed(2)
@@ -163,17 +160,15 @@ export function applyCapacityLimit(fullLayout, requiredPanels, generateMode) {
  *
  * @param {object} area
  * @param {object|null} panelLayout
- * @param {import("./panelConfig.js").ProjectPanelDefaults} projectDefaults
  * @param {string} generateMode
  */
 export function computeAreaGeneratedLayoutRecord(
   area,
   panelLayout,
-  projectDefaults,
   generateMode = GENERATE_MODES.CAPACITY,
 ) {
-  const cfg = resolveEffectivePanelConfig(projectDefaults, area.panelProperties);
-  const designGoal = resolveEffectiveDesignGoal(projectDefaults, area.panelProperties);
+  const cfg = resolvePlacementAreaConfig(area.panelProperties);
+  const designGoal = cfg.designGoal;
   const panel = panelForPlacement(cfg.moduleId, cfg.orientation);
   const powerW = panel?.powerW ?? panel?.power ?? 0;
 
@@ -205,13 +200,12 @@ export function computeAreaGeneratedLayoutRecord(
  * Whether any active area exceeds its target in capacity mode.
  *
  * @param {object|null} placementReady
- * @param {import("./panelConfig.js").ProjectPanelDefaults} projectDefaults
  * @param {object[]} placementAreas
  */
-export function anyAreaExceedsCapacity(placementReady, projectDefaults, placementAreas) {
+export function anyAreaExceedsCapacity(placementReady, placementAreas) {
   const active = (placementAreas ?? []).filter((a) => !a.deleted);
   return active.some((area) => {
-    const preview = computeCapacityPreview(placementReady, projectDefaults, area);
+    const preview = computeCapacityPreview(placementReady, area);
     return preview.exceeds;
   });
 }
