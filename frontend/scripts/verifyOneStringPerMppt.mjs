@@ -4,7 +4,7 @@
  */
 
 import { createElectricalArray } from "../src/features/ElectricalDesign/models/array.js";
-import { selectInverterFromCatalog } from "../src/features/ElectricalDesign/models/inverter.js";
+import { selectInverterFromCatalog, addInverterFromCatalog } from "../src/features/ElectricalDesign/models/inverter.js";
 import { mpptsForInverter } from "../src/features/ElectricalDesign/models/mppt.js";
 import { createStringFromSelection } from "../src/features/ElectricalDesign/models/string.js";
 import {
@@ -190,6 +190,7 @@ const metrics = computeElectricalMetrics({
   arrays,
   strings: normalized.strings,
   mppts: normalized.mppts,
+  inverters: [inv.inverter],
   inverter: inv.inverter,
   panelLayout,
 });
@@ -198,5 +199,28 @@ assert(metrics.inverter?.totalDcCapacityKw > 0, "inverter DC capacity computed")
 assert(metrics.inverter?.dcAcRatio != null, "DC/AC ratio computed");
 
 console.log("✓ P5A calculations unaffected");
+
+// ── Cross-inverter normalization does not migrate across pools ───────────────
+const invB = addInverterFromCatalog(fronius.catalogId, inv.inverters, inv.mppts);
+assert(invB.ok, "second inverter for cross-pool test");
+const combinedMppts = invB.mppts.map((m) => ({ ...m, stringIds: [...(m.stringIds ?? [])] }));
+combinedMppts[0] = { ...combinedMppts[0], stringIds: [s1.string.id, s2.string.id] };
+combinedMppts[1] = { ...combinedMppts[1], stringIds: [s3.string.id] };
+const crossStrings = [s1.string, s2.string, s3.string].map((s, i) => ({
+  ...s,
+  mpptId: i < 2 ? combinedMppts[0].id : combinedMppts[1].id,
+}));
+assert(hasMultiStringMpptAssignments(combinedMppts), "cross-pool overflow seeded");
+
+const crossNormalized = normalizeOneStringPerMppt(crossStrings, combinedMppts);
+assert(crossNormalized.unassigned === 1, "overflow unassigned when no empty MPPT on same inverter");
+assert(
+  !crossNormalized.mppts.some(
+    (m) => m.inverterId === invB.inverter.id && m.stringIds.length > 0,
+  ),
+  "never assigns overflow to another inverter's MPPT",
+);
+
+console.log("✓ cross-inverter overflow stays within inverter pool");
 
 console.log("\nAll P5B one-string-per-MPPT checks passed.");

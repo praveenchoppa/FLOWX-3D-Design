@@ -97,3 +97,14 @@ export function removeMpptsForInverters(mppts, inverterIds) {
   const remove = new Set(inverterIds ?? []);
   return (mppts ?? []).filter((m) => !remove.has(m.inverterId));
 }
+
+/**
+ * Resolve the parent inverter for an MPPT.
+ *
+ * @param {object[]} inverters
+ * @param {object|null} mppt
+ */
+export function inverterForMppt(inverters, mppt) {
+  if (!mppt?.inverterId) return null;
+  return (inverters ?? []).find((i) => i.id === mppt.inverterId) ?? null;
+}

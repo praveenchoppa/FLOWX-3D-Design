@@ -36,6 +36,8 @@ import {
   renameElectricalString,
 } from "../models/string.js";
 import {
+  addInverterFromCatalog,
+  changeInverterSpecification,
   selectInverterFromCatalog,
   syncMpptsAfterPlacementRefresh,
 } from "../models/inverter.js";
@@ -82,6 +84,8 @@ const ACTION = /** @type {const} */ ({
   SELECT_INVERTER:            "SELECT_INVERTER",
   SELECT_MPPT:                "SELECT_MPPT",
   SET_INVERTER_FROM_CATALOG:  "SET_INVERTER_FROM_CATALOG",
+  ADD_INVERTER_FROM_CATALOG:    "ADD_INVERTER_FROM_CATALOG",
+  CHANGE_INVERTER_SPEC:       "CHANGE_INVERTER_SPEC",
   ASSIGN_STRING_TO_MPPT:      "ASSIGN_STRING_TO_MPPT",
   REMOVE_STRING_FROM_MPPT:    "REMOVE_STRING_FROM_MPPT",
   NORMALIZE_MPPT_ASSIGNMENTS: "NORMALIZE_MPPT_ASSIGNMENTS",
@@ -152,10 +156,12 @@ function setActiveArray(state, arrayId) {
 function electricalReducer(state, action) {
   switch (action.type) {
     case ACTION.INIT_FROM_PLACEMENT: {
-      const { arrays, fingerprint } = action.payload;
+      const { arrays, fingerprint, persistedInverters = [], persistedMppts = [] } = action.payload;
       const firstId = arrays[0]?.id ?? null;
-      const preservedInverters = state.inverters ?? [];
-      const preservedMppts = syncMpptsAfterPlacementRefresh(state.mppts);
+      const preservedInverters = (state.inverters?.length ? state.inverters : persistedInverters) ?? [];
+      const preservedMppts = syncMpptsAfterPlacementRefresh(
+        state.mppts?.length ? state.mppts : persistedMppts,
+      );
       const preservedInverterId = preservedInverters.some(
         (i) => i.id === state.selectedInverterId,
       )
@@ -346,6 +352,27 @@ function electricalReducer(state, action) {
         selectedMpptId:     null,
       };
     }
+    case ACTION.ADD_INVERTER_FROM_CATALOG: {
+      const { inverters, mppts, inverterId } = action.payload;
+      return {
+        ...clearDesignSelectionState(state),
+        inverters,
+        mppts,
+        selectedInverterId: inverterId,
+        selectedMpptId:     null,
+      };
+    }
+    case ACTION.CHANGE_INVERTER_SPEC: {
+      const { inverters, mppts, strings, inverterId } = action.payload;
+      return {
+        ...clearDesignSelectionState(state),
+        inverters,
+        mppts,
+        strings,
+        selectedInverterId: inverterId,
+        selectedMpptId:     null,
+      };
+    }
     case ACTION.ASSIGN_STRING_TO_MPPT: {
       const { arrays, strings, mppts, stringId, mpptId } = action.payload;
       return {
@@ -522,8 +549,11 @@ export function ElectricalStoreProvider({
   roofSections = [],
   designCentre = null,
   persistedArrays = [],
+  persistedInverters = [],
+  persistedMppts = [],
   persistedTerminationPoint = null,
   onArraysChange,
+  onInvertersChange,
   onTerminationPointChange,
   onRegisterArrayToolHandlers,
   onRegisterTerminationHandlers,
@@ -570,7 +600,12 @@ export function ElectricalStoreProvider({
 
     dispatch({
       type: ACTION.INIT_FROM_PLACEMENT,
-      payload: { arrays, fingerprint },
+      payload: {
+        arrays,
+        fingerprint,
+        persistedInverters,
+        persistedMppts,
+      },
     });
   }, [
     active,
@@ -584,6 +619,8 @@ export function ElectricalStoreProvider({
     projectPanelDefaults,
     selectedPanel,
     persistedArrays,
+    persistedInverters,
+    persistedMppts,
   ]);
 
   const selectArray = useCallback((arrayId, options = {}) => {
@@ -801,14 +838,52 @@ export function ElectricalStoreProvider({
     return result;
   }, [state.inverters, state.mppts, state.strings]);
 
+  const addInverterFromCatalogAction = useCallback((catalogId) => {
+    const result = addInverterFromCatalog(
+      catalogId,
+      state.inverters,
+      state.mppts,
+    );
+    if (!result.ok) return result;
+    dispatch({
+      type: ACTION.ADD_INVERTER_FROM_CATALOG,
+      payload: {
+        inverters:  result.inverters,
+        mppts:      result.mppts,
+        inverterId: result.inverter.id,
+      },
+    });
+    return result;
+  }, [state.inverters, state.mppts]);
+
+  const changeInverterSpecAction = useCallback((catalogId, inverterId) => {
+    const result = changeInverterSpecification(
+      catalogId,
+      inverterId,
+      state.inverters,
+      state.mppts,
+      state.strings,
+    );
+    if (!result.ok) return result;
+    dispatch({
+      type: ACTION.CHANGE_INVERTER_SPEC,
+      payload: {
+        inverters:  result.inverters,
+        mppts:      result.mppts,
+        strings:    result.strings,
+        inverterId: result.inverter.id,
+      },
+    });
+    return result;
+  }, [state.inverters, state.mppts, state.strings]);
+
   const assignStringToMppt = useCallback((stringId, mpptId) => {
-    const projectInverterId = state.inverters[0]?.id ?? null;
     const result = assignStringToMpptPure(
       state.strings,
       state.mppts,
       stringId,
       mpptId,
-      projectInverterId,
+      null,
     );
     if (!result.ok) return result;
 
@@ -830,7 +905,7 @@ export function ElectricalStoreProvider({
       },
     });
     return result;
-  }, [state.strings, state.mppts, state.inverters, state.arrays]);
+  }, [state.strings, state.mppts, state.arrays]);
 
   const removeStringFromMppt = useCallback((stringId) => {
     const result = removeStringFromMpptPure(state.strings, state.mppts, stringId);
@@ -1054,10 +1129,10 @@ export function ElectricalStoreProvider({
     [state.mppts, state.selectedMpptId],
   );
 
-  const inverterMppts = useMemo(
-    () => (projectInverter ? mpptsForInverter(state.mppts, projectInverter) : []),
-    [state.mppts, projectInverter],
-  );
+  const inverterMppts = useMemo(() => {
+    const inv = selectedInverter ?? projectInverter;
+    return inv ? mpptsForInverter(state.mppts, inv) : [];
+  }, [state.mppts, selectedInverter, projectInverter]);
 
   const canPickPanels = useMemo(
     () => canPickPanelsInActiveArray(state.activeArrayId, state.selectedArrayIds),
@@ -1128,6 +1203,11 @@ export function ElectricalStoreProvider({
     if (!active || !onArraysChange) return;
     onArraysChange(state.arrays);
   }, [active, onArraysChange, state.arrays]);
+
+  useEffect(() => {
+    if (!active || !onInvertersChange) return;
+    onInvertersChange({ inverters: state.inverters, mppts: state.mppts });
+  }, [active, onInvertersChange, state.inverters, state.mppts]);
 
   useEffect(() => {
     if (!active || !onTerminationPointChange) return;
@@ -1233,6 +1313,8 @@ export function ElectricalStoreProvider({
       selectInverter,
       selectMppt,
       setInverterFromCatalog,
+      addInverterFromCatalog: addInverterFromCatalogAction,
+      changeInverterSpecification: changeInverterSpecAction,
       assignStringToMppt,
       removeStringFromMppt,
       selectPanel,
@@ -1278,6 +1360,8 @@ export function ElectricalStoreProvider({
       selectInverter,
       selectMppt,
       setInverterFromCatalog,
+      addInverterFromCatalogAction,
+      changeInverterSpecAction,
       assignStringToMppt,
       removeStringFromMppt,
       selectPanel,

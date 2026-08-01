@@ -353,6 +353,8 @@ export default function DesignStudio() {
   const [electricalSelectedStringId, setElectricalSelectedStringId] = useState(null);
   const [electricalSelectedArrayId, setElectricalSelectedArrayId] = useState(null);
   const [electricalArrays, setElectricalArrays] = useState([]);
+  const [electricalInverters, setElectricalInverters] = useState([]);
+  const [electricalMppts, setElectricalMppts] = useState([]);
   const [electricalTerminationPoint, setElectricalTerminationPoint] = useState(null);
   const [electricalHomerunWiringSegments, setElectricalHomerunWiringSegments] = useState([]);
   const [electricalTerminationPlacementMode, setElectricalTerminationPlacementMode] = useState(false);
@@ -1068,6 +1070,11 @@ export default function DesignStudio() {
 
   const handleArraysChange = useCallback((arrays) => {
     setElectricalArrays(arrays ?? []);
+  }, []);
+
+  const handleInvertersChange = useCallback(({ inverters, mppts }) => {
+    setElectricalInverters(inverters ?? []);
+    setElectricalMppts(mppts ?? []);
   }, []);
 
   const handleTerminationPointChange = useCallback((point) => {
@@ -2031,8 +2038,11 @@ export default function DesignStudio() {
     panelLayout: activePanelLayout,
     baselinePanelLayout,
     persistedArrays: electricalArrays,
+    persistedInverters: electricalInverters,
+    persistedMppts: electricalMppts,
     persistedTerminationPoint: electricalTerminationPoint,
     onArraysChange: handleArraysChange,
+    onInvertersChange: handleInvertersChange,
     onTerminationPointChange: handleTerminationPointChange,
     onRegisterArrayToolHandlers: handleRegisterArrayToolHandlers,
     onRegisterTerminationHandlers: handleRegisterTerminationHandlers,

@@ -5,7 +5,10 @@
 
 import { createElectricalArray } from "../src/features/ElectricalDesign/models/array.js";
 import {
+  addInverterFromCatalog,
+  changeInverterSpecification,
   clearStringMpptAssignments,
+  clearStringMpptAssignmentsForInverter,
   selectInverterFromCatalog,
   syncMpptsAfterPlacementRefresh,
 } from "../src/features/ElectricalDesign/models/inverter.js";
@@ -106,5 +109,101 @@ const clearedStrings = clearStringMpptAssignments(
 assert(clearedStrings.every((s) => s.mpptId == null), "clearStringMpptAssignments");
 
 console.log("✓ placement refresh helpers");
+
+// ── Add inverter without disturbing existing ─────────────────────────────────
+const addResult = addInverterFromCatalog(
+  fronius.catalogId,
+  afterReselect.inverters,
+  afterReselect.mppts,
+);
+assert(addResult.ok, "add inverter succeeds");
+assert(addResult.inverters.length === 2, "two inverters after add");
+assert(addResult.mppts.length === afterReselect.mppts.length + 2, "new MPPTs appended only");
+assert(
+  addResult.inverters.some((i) => i.id === afterReselect.inverters[0].id),
+  "original inverter preserved",
+);
+assert(
+  afterReselect.mppts.every((m) => addResult.mppts.some((nm) => nm.id === m.id)),
+  "original MPPT entities untouched",
+);
+
+console.log("✓ addInverterFromCatalog appends without regenerating existing");
+
+// ── Scoped spec change clears only target inverter assignments ───────────────
+const invA = addResult.inverters[0];
+const invB = addResult.inverter;
+const mpptA = addResult.mppts.find((m) => m.inverterId === invA.id);
+const mpptB = addResult.mppts.find((m) => m.inverterId === invB.id);
+assert(mpptA && mpptB, "MPPTs for both inverters");
+
+const array2 = createElectricalArray({
+  id: "arr-2",
+  panelIds: ["r2::0::0", "r2::0::1"],
+});
+const strA = createStringFromSelection(
+  [array2],
+  [],
+  "arr-2",
+  ["r2::0::0"],
+  panelLayout,
+);
+const strB = createStringFromSelection(
+  strA.arrays,
+  strA.strings,
+  "arr-2",
+  ["r2::0::1"],
+  panelLayout,
+);
+assert(strA.ok && strB.ok, "strings for scoped change test");
+
+let stringsScoped = strB.strings.map((s) => {
+  if (s.id === strA.string.id) return { ...s, mpptId: mpptA.id };
+  if (s.id === strB.string.id) return { ...s, mpptId: mpptB.id };
+  return s;
+});
+let mpptsScoped = addResult.mppts.map((m) => {
+  if (m.id === mpptA.id) return { ...m, stringIds: [strA.string.id] };
+  if (m.id === mpptB.id) return { ...m, stringIds: [strB.string.id] };
+  return m;
+});
+
+const changeResult = changeInverterSpecification(
+  huawei.catalogId,
+  invA.id,
+  addResult.inverters,
+  mpptsScoped,
+  stringsScoped,
+);
+assert(changeResult.ok, "scoped spec change succeeds");
+assert(changeResult.inverters.length === 2, "both inverters remain");
+assert(
+  changeResult.inverters.find((i) => i.id === invB.id)?.catalogId === fronius.catalogId,
+  "other inverter spec untouched",
+);
+assert(
+  changeResult.strings.find((s) => s.id === strB.string.id)?.mpptId === mpptB.id,
+  "other inverter assignment preserved",
+);
+assert(
+  changeResult.strings.find((s) => s.id === strA.string.id)?.mpptId == null,
+  "target inverter assignment cleared",
+);
+
+const clearedForOne = clearStringMpptAssignmentsForInverter(
+  stringsScoped,
+  mpptsScoped,
+  invA.id,
+);
+assert(
+  clearedForOne.find((s) => s.id === strA.string.id)?.mpptId == null,
+  "clearStringMpptAssignmentsForInverter clears target only",
+);
+assert(
+  clearedForOne.find((s) => s.id === strB.string.id)?.mpptId === mpptB.id,
+  "clearStringMpptAssignmentsForInverter preserves other inverter",
+);
+
+console.log("✓ changeInverterSpecification scoped to one inverter");
 
 console.log("\nAll inverter foundation verification tests passed.");

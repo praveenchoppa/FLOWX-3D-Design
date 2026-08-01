@@ -18,8 +18,11 @@ export default function ElectricalDesign({
   selectedPanel = null,
   roofSections = [],
   persistedArrays = [],
+  persistedInverters = [],
+  persistedMppts = [],
   persistedTerminationPoint = null,
   onArraysChange = () => {},
+  onInvertersChange = () => {},
   onTerminationPointChange = () => {},
   onElectricalSelectionChange = () => {},
   onRegisterElectricalPanelPickHandlers = () => {},
@@ -60,8 +63,11 @@ export default function ElectricalDesign({
       roofSections={roofSections}
       designCentre={designCentre}
       persistedArrays={persistedArrays}
+      persistedInverters={persistedInverters}
+      persistedMppts={persistedMppts}
       persistedTerminationPoint={persistedTerminationPoint}
       onArraysChange={onArraysChange}
+      onInvertersChange={onInvertersChange}
       onTerminationPointChange={onTerminationPointChange}
       onRegisterArrayToolHandlers={handleRegisterArrayTools}
       onRegisterTerminationHandlers={handleRegisterTerminationHandlers}

@@ -12,6 +12,7 @@
  */
 
 import { getPanelById } from "../../panels/panelTypes.js";
+import { mpptsForInverter } from "../models/mppt.js";
 import { panelSlotKey } from "../utils/panelSelectionUtils.js";
 import {
   dcAcRatio,
@@ -58,12 +59,14 @@ import {
  * @property {number|null} dcAcRatio
  * @property {number|null} acRatingKw
  * @property {number} panelCount
+ * @property {number} assignedStringCount
  */
 
 /**
  * @typedef {object} ElectricalMetricsResult
  * @property {Record<string, StringMetrics>} byStringId
  * @property {Record<string, MpptMetrics>} byMpptId
+ * @property {Record<string, InverterMetrics>} byInverterId
  * @property {InverterMetrics|null} inverter
  * @property {object[]} warnings
  */
@@ -204,15 +207,46 @@ export function computeMpptMetrics(mppt, byStringId) {
 }
 
 /**
+ * Sum DC capacity from strings assigned to one inverter's MPPTs only.
+ * Unassigned strings never contribute.
+ *
+ * @param {object} inverter
+ * @param {object[]} mppts
+ * @param {Record<string, StringMetrics>} byStringId
+ * @returns {{ totalDcCapacityW: number, panelCount: number, assignedStringCount: number }}
+ */
+export function computeInverterAssignedDcCapacity(inverter, mppts, byStringId) {
+  const inverterMppts = mpptsForInverter(mppts, inverter);
+  const assignedStringIds = new Set();
+
+  for (const mppt of inverterMppts) {
+    for (const stringId of mppt.stringIds ?? []) {
+      assignedStringIds.add(stringId);
+    }
+  }
+
+  let totalDcCapacityW = 0;
+  let panelCount = 0;
+
+  for (const stringId of assignedStringIds) {
+    const metrics = byStringId[stringId];
+    if (!metrics) continue;
+    totalDcCapacityW += metrics.dcCapacityW ?? 0;
+    panelCount += metrics.panelCount ?? 0;
+  }
+
+  return {
+    totalDcCapacityW,
+    panelCount,
+    assignedStringCount: assignedStringIds.size,
+  };
+}
+
+/**
  * Total DC capacity across all panels in electrical arrays.
  *
- * MVP assumption (single project inverter): sums every panel in arrays[] because
- * the UI currently exposes one inverter (inverters[0]) and there is no per-inverter
- * panel ownership split yet. DC/AC on the selected inverter therefore reflects
- * the whole designed array DC against that inverter's AC rating.
- *
- * Multi-inverter future: scope DC capacity per inverter — typically sum DC
- * capacity of strings assigned to that inverter's MPPTs (not all arrays[]).
+ * Legacy helper — retained for reference. Per-inverter DC uses
+ * computeInverterAssignedDcCapacity().
  *
  * @param {object[]} arrays
  * @param {Map<string, object>} placedBySlotId
@@ -238,16 +272,14 @@ export function computeSystemDcCapacity(arrays, placedBySlotId) {
 }
 
 /**
- * Inverter-level metrics for the selected project inverter (MVP: inverters[0]).
- *
- * totalDcCapacityW is the full arrays[] sum — see computeSystemDcCapacity.
- * When multiple inverters exist, pass a scoped DC total for that inverter instead.
+ * Inverter-level metrics from assigned-string DC capacity.
  *
  * @param {object|null} inverter
  * @param {number} totalDcCapacityW
+ * @param {number} panelCount
  * @returns {InverterMetrics|null}
  */
-export function computeInverterMetrics(inverter, totalDcCapacityW, panelCount) {
+export function computeInverterMetrics(inverter, totalDcCapacityW, panelCount, assignedStringCount = 0) {
   if (!inverter) return null;
 
   const totalDcCapacityKw = totalDcCapacityW / 1000;
@@ -259,6 +291,7 @@ export function computeInverterMetrics(inverter, totalDcCapacityW, panelCount) {
     dcAcRatio:         roundMetric(dcAcRatio(totalDcCapacityKw, acRatingKw), 2),
     acRatingKw,
     panelCount,
+    assignedStringCount,
   };
 }
 
@@ -269,7 +302,8 @@ export function computeInverterMetrics(inverter, totalDcCapacityW, panelCount) {
  * @param {object[]} params.arrays
  * @param {object[]} params.strings
  * @param {object[]} params.mppts
- * @param {object|null} params.inverter — project inverter (MVP: inverters[0])
+ * @param {object[]} [params.inverters]
+ * @param {object|null} params.inverter — selected inverter (legacy `inverter` field)
  * @param {object|null} params.panelLayout
  * @returns {ElectricalMetricsResult}
  */
@@ -277,6 +311,7 @@ export function computeElectricalMetrics({
   arrays = [],
   strings = [],
   mppts = [],
+  inverters = [],
   inverter = null,
   panelLayout = null,
 }) {
@@ -292,12 +327,30 @@ export function computeElectricalMetrics({
     byMpptId[mppt.id] = computeMpptMetrics(mppt, byStringId);
   }
 
-  const { totalDcCapacityW, panelCount } = computeSystemDcCapacity(arrays, placedBySlotId);
-  const inverterMetrics = computeInverterMetrics(inverter, totalDcCapacityW, panelCount);
+  const byInverterId = {};
+  for (const inv of inverters ?? []) {
+    const { totalDcCapacityW, panelCount, assignedStringCount } = computeInverterAssignedDcCapacity(
+      inv,
+      mppts,
+      byStringId,
+    );
+    byInverterId[inv.id] = computeInverterMetrics(
+      inv,
+      totalDcCapacityW,
+      panelCount,
+      assignedStringCount,
+    );
+  }
+
+  const selectedInverter = inverter ?? inverters[0] ?? null;
+  const inverterMetrics = selectedInverter
+    ? (byInverterId[selectedInverter.id] ?? computeInverterMetrics(selectedInverter, 0, 0))
+    : null;
 
   return {
     byStringId,
     byMpptId,
+    byInverterId,
     inverter: inverterMetrics,
     warnings:  [],
   };

@@ -14,6 +14,7 @@ import { useInverterSelection } from "../hooks/useInverterSelection.js";
 import { useMpptSelection } from "../hooks/useMpptSelection.js";
 import { validateMergeCompatibility } from "../models/array.js";
 import { stringsForMppt } from "../models/stringAssignment.js";
+import { inverterForMppt } from "../models/mppt.js";
 import { homerunLengthDisplay, totalCableLengthDisplay, wiringSummaryForDisplay } from "../models/cable.js";
 import { useElectricalStore } from "../hooks/useElectricalStore.js";
 import {
@@ -53,24 +54,25 @@ export default function PropertiesPanel() {
     activeArray,
   } = useElectricalPanelSelection();
   const { selectedString } = useStringSelection();
-  const { selectedInverter, projectInverter } = useInverterSelection();
+  const { selectedInverter } = useInverterSelection();
   const { selectedMppt } = useMpptSelection();
   const { deleteString, canDeleteString } = useStringManagement();
   const {
     assignedMppt,
     canAssignString,
     canRemoveAssignment,
+    assignableGroups,
     assignableMppts,
     allMpptsOccupied,
     allMpptsOccupiedMessage,
     assignStringToMppt,
     removeStringFromMppt,
-    projectInverter: assignmentInverter,
   } = useStringAssignment();
   const { metrics, utilization, warnings } = useElectricalCalculations();
   const {
     arrays,
     strings,
+    inverters,
     panelLayout,
     mpptAllowedOverloadPercent,
     setMpptAllowedOverload,
@@ -201,7 +203,19 @@ export default function PropertiesPanel() {
   );
   const totalCableSummary = totalCableLengthDisplay(selectedStringWiring, terminationPoint);
 
-  const inverterMetrics = metrics.inverter;
+  const parentInverterForMppt = selectedMppt
+    ? inverterForMppt(inverters, selectedMppt)
+    : null;
+
+  const assignedParentInverter = assignedMppt
+    ? inverterForMppt(inverters, assignedMppt)
+    : null;
+
+  const selectedInverterMetrics = selectedInverter
+    ? metrics.byInverterId[selectedInverter.id]
+    : null;
+
+  const inverterMetrics = selectedInverterMetrics ?? metrics.inverter;
 
   return (
     <div className="flex flex-col gap-3">
@@ -214,8 +228,8 @@ export default function PropertiesPanel() {
           </div>
           <DataRow
             label="Parent Inverter"
-            value={projectInverter
-              ? `${projectInverter.manufacturer} ${projectInverter.model}`
+            value={parentInverterForMppt
+              ? `${parentInverterForMppt.manufacturer} ${parentInverterForMppt.model}`
               : "—"}
           />
           <DataRow label="Assigned Strings" value={mpptAssignedNames} />
@@ -303,18 +317,22 @@ export default function PropertiesPanel() {
           </div>
           <DataRow label="Total Load (AC)" value={`${selectedInverter.totalLoad} kW`} />
           <DataRow
-            label="Total DC Capacity"
+            label="DC Capacity"
             value={formatDcCapacityKw(inverterMetrics?.totalDcCapacityKw)}
           />
           <DataRow
             label="DC/AC Ratio"
             value={formatDcAcRatio(inverterMetrics?.dcAcRatio)}
           />
+          <DataRow label="MPPT Count" value={String(selectedInverter.chargeControllerCount)} />
+          <DataRow
+            label="Assigned Strings"
+            value={String(inverterMetrics?.assignedStringCount ?? 0)}
+          />
           <DataRow label="Phase" value={selectedInverter.phase} />
           <DataRow label="Line Voltage" value={`${selectedInverter.lineVoltage} V`} />
           <DataRow label="DC Voltage" value={`${selectedInverter.dcVoltage} V`} />
-          <DataRow label="DC Current" value={`${selectedInverter.dcCurrent} A`} />
-          <DataRow label="MPPT Count" value={String(selectedInverter.chargeControllerCount)} isLast />
+          <DataRow label="DC Current" value={`${selectedInverter.dcCurrent} A`} isLast />
         </div>
       )}
 
@@ -343,14 +361,20 @@ export default function PropertiesPanel() {
             value={formatDcCapacity(selectedStringMetrics?.dcCapacityW)}
           />
           <DataRow
-            label="Current MPPT"
+            label="Assigned MPPT"
             value={assignedMppt?.displayName ?? "Not Assigned"}
+          />
+          <DataRow
+            label="Parent Inverter"
+            value={assignedParentInverter
+              ? `${assignedParentInverter.manufacturer} ${assignedParentInverter.model}`
+              : "Not Assigned"}
           />
           <DataRow
             label="Homerun Assignment"
             value={
-              projectInverter && assignedMppt
-                ? `${assignedMppt.displayName} → ${projectInverter.manufacturer} ${projectInverter.model}`
+              assignedParentInverter && assignedMppt
+                ? `${assignedMppt.displayName} → ${assignedParentInverter.manufacturer} ${assignedParentInverter.model}`
                 : assignedMppt
                   ? assignedMppt.displayName
                   : "Not Assigned"
@@ -389,14 +413,14 @@ export default function PropertiesPanel() {
               </p>
             </div>
           )}
-          {!assignmentInverter && (
+          {!inverters.length && (
             <div className="px-4 py-3 border-t border-[#23324A]/60">
               <p className="text-[10px] text-[#64748B] leading-relaxed">
-                Select an inverter before assigning strings to MPPTs.
+                Add an inverter before assigning strings to MPPTs.
               </p>
             </div>
           )}
-          {assignmentInverter && (
+          {inverters.length > 0 && (
             <div className="px-4 py-3 border-t border-[#23324A]/60 flex flex-col gap-2">
               <label className="text-[10px] text-[#94A3B8] font-medium">
                 Assign to MPPT
@@ -411,10 +435,19 @@ export default function PropertiesPanel() {
                 className="w-full px-2.5 py-2 rounded-lg text-[11px] bg-[rgba(7,17,32,0.6)] border border-[#23324A]/60 text-[#F8FAFC] focus:outline-none focus:border-[#00E38C]/50 disabled:opacity-50"
               >
                 <option value="">— Select MPPT —</option>
-                {assignableMppts.map((mppt) => (
-                  <option key={mppt.id} value={mppt.id}>
-                    {mppt.displayName}
-                  </option>
+                {assignableGroups.map(({ inverter, mppts: groupMppts }) => (
+                  groupMppts.length > 0 && (
+                    <optgroup
+                      key={inverter.id}
+                      label={`${inverter.manufacturer} ${inverter.model}`}
+                    >
+                      {groupMppts.map((mppt) => (
+                        <option key={mppt.id} value={mppt.id}>
+                          {mppt.displayName}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )
                 ))}
               </select>
               {allMpptsOccupied && (

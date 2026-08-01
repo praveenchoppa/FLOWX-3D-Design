@@ -182,6 +182,23 @@ export function assignableMpptsForString(inverterMppts, selectedStringId = null)
 }
 
 /**
+ * Assignable MPPT targets grouped by owning inverter (multi-inverter picker).
+ *
+ * @param {object[]} inverters
+ * @param {object[]} mppts
+ * @param {string|null} selectedStringId
+ */
+export function assignableMpptsGroupedByInverter(inverters, mppts, selectedStringId = null) {
+  return (inverters ?? []).map((inverter) => {
+    const inverterMppts = (mppts ?? []).filter((m) => m.inverterId === inverter.id);
+    return {
+      inverter,
+      mppts: assignableMpptsForString(inverterMppts, selectedStringId),
+    };
+  });
+}
+
+/**
  * True when every MPPT is occupied by a string other than the selected one.
  *
  * @param {object[]} inverterMppts
@@ -217,37 +234,52 @@ export function normalizeOneStringPerMppt(strings, mppts) {
     };
   }
 
+  /** @type {{ stringId: string, inverterId: string }[]} */
   const overflow = [];
 
   nextMppts = nextMppts.map((mppt) => {
     if ((mppt.stringIds?.length ?? 0) <= 1) return mppt;
     const [keep, ...extras] = mppt.stringIds;
-    overflow.push(...extras);
+    for (const stringId of extras) {
+      overflow.push({ stringId, inverterId: mppt.inverterId });
+    }
     return { ...mppt, stringIds: [keep] };
   });
 
-  const emptyMppts = nextMppts.filter((m) => (m.stringIds?.length ?? 0) === 0);
   let migrated = 0;
   let unassigned = 0;
 
-  for (let i = 0; i < overflow.length; i += 1) {
-    const stringId = overflow[i];
-    const target = emptyMppts[i];
+  const overflowByInverter = new Map();
+  for (const item of overflow) {
+    const list = overflowByInverter.get(item.inverterId) ?? [];
+    list.push(item.stringId);
+    overflowByInverter.set(item.inverterId, list);
+  }
 
-    if (target) {
-      nextMppts = nextMppts.map((m) => (
-        m.id === target.id ? { ...m, stringIds: [stringId] } : m
-      ));
-      nextStrings = nextStrings.map((s) => (
-        s.id === stringId ? { ...s, mpptId: target.id } : s
-      ));
-      migrated += 1;
-    } else {
-      nextMppts = removeStringIdFromAllMppts(nextMppts, stringId);
-      nextStrings = nextStrings.map((s) => (
-        s.id === stringId ? { ...s, mpptId: null } : s
-      ));
-      unassigned += 1;
+  for (const [inverterId, stringIds] of overflowByInverter.entries()) {
+    const emptyMppts = nextMppts.filter(
+      (m) => m.inverterId === inverterId && (m.stringIds?.length ?? 0) === 0,
+    );
+
+    for (let i = 0; i < stringIds.length; i += 1) {
+      const stringId = stringIds[i];
+      const target = emptyMppts[i];
+
+      if (target) {
+        nextMppts = nextMppts.map((m) => (
+          m.id === target.id ? { ...m, stringIds: [stringId] } : m
+        ));
+        nextStrings = nextStrings.map((s) => (
+          s.id === stringId ? { ...s, mpptId: target.id } : s
+        ));
+        migrated += 1;
+      } else {
+        nextMppts = removeStringIdFromAllMppts(nextMppts, stringId);
+        nextStrings = nextStrings.map((s) => (
+          s.id === stringId ? { ...s, mpptId: null } : s
+        ));
+        unassigned += 1;
+      }
     }
   }
 

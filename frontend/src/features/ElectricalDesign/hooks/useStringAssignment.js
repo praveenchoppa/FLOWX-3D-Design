@@ -7,7 +7,7 @@ import { useMemo } from "react";
 import { useElectricalStore } from "./useElectricalStore.js";
 import {
   ALL_MPPTS_OCCUPIED_MESSAGE,
-  assignableMpptsForString,
+  assignableMpptsGroupedByInverter,
   mpptForString,
 } from "../models/stringAssignment.js";
 
@@ -15,8 +15,7 @@ export function useStringAssignment() {
   const {
     selectedString,
     selectedStringId,
-    projectInverter,
-    inverterMppts,
+    inverters,
     assignStringToMppt,
     removeStringFromMppt,
     mppts,
@@ -27,9 +26,14 @@ export function useStringAssignment() {
     [mppts, selectedString],
   );
 
+  const assignableGroups = useMemo(
+    () => assignableMpptsGroupedByInverter(inverters, mppts, selectedStringId),
+    [inverters, mppts, selectedStringId],
+  );
+
   const assignableMppts = useMemo(
-    () => assignableMpptsForString(inverterMppts, selectedStringId),
-    [inverterMppts, selectedStringId],
+    () => assignableGroups.flatMap((group) => group.mppts),
+    [assignableGroups],
   );
 
   const hasEmptyAssignableMppt = useMemo(
@@ -37,16 +41,17 @@ export function useStringAssignment() {
     [assignableMppts],
   );
 
+  const hasAnyInverter = inverters.length > 0;
+
   const allMpptsOccupied = useMemo(
-    () => !!projectInverter
-      && inverterMppts.length > 0
-      && !hasEmptyAssignableMppt
+    () => hasAnyInverter
+      && assignableMppts.length === 0
       && !selectedString?.mpptId,
-    [projectInverter, inverterMppts.length, hasEmptyAssignableMppt, selectedString?.mpptId],
+    [hasAnyInverter, assignableMppts.length, selectedString?.mpptId],
   );
 
   const canAssignString = !!selectedString
-    && !!projectInverter
+    && hasAnyInverter
     && assignableMppts.length > 0
     && !allMpptsOccupied;
 
@@ -58,8 +63,7 @@ export function useStringAssignment() {
   return {
     selectedString,
     selectedStringId,
-    projectInverter,
-    inverterMppts,
+    assignableGroups,
     assignableMppts,
     assignedMppt,
     canAssignString,

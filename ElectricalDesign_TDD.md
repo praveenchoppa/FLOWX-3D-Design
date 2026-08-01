@@ -132,3 +132,123 @@ Phase-1 engineering placement UNCHANGED (containment, spacing, obstacle avoidanc
 Engineering ALWAYS dominates: choose a compact layout ONLY when engineering-equivalent (same panel count, same/higher coverage, same irradiance, valid spacing/containment). Never reduce count, coverage, irradiance, or correctness for tidiness.
 Applies mainly to simple regions with multiple equally-valid layouts; irregular roofs that naturally fragment are left as-is.
 Implement as a pipeline ENHANCEMENT, NOT a rewrite of panelPlacement.js; re-verify all Step 6C coverage cases after. WHY DEFER: not a prerequisite — electrical works on current placement today. Building the electrical workflow first reveals exactly what layout structure best serves it, so the planner can target that instead of a guess. Revisit after the electrical MVP, or sooner ONLY if concrete friction appears during P2b-P7.
+ADDENDUM A — Implementation Evolution (v1.0 → current)
+
+Status: LIVING. Date of this addendum: 2026-08-01. This section records where the FROZEN v1.0 architecture above was extended or clarified DURING implementation, per this document's own rule ("implementation drives documentation"). The v1.0 body above is preserved unchanged as the original design intent. Where this addendum and the body differ, THIS ADDENDUM reflects what was actually built.
+
+A0. Implementation status snapshot
+
+COMPLETE and verified in the running app:
+
+P0 — empty Electrical Design wizard step.
+P1 — Electrical Store + auto-create arrays + minimal workspace + array selection.
+P2 — array editing (rename / merge / split) + electrical panel selection infrastructure.
+P3 — string creation (manual) + string management.
+P4 — inverter catalog + selection + MPPT generation.
+P4b — String → MPPT assignment.
+P5A — derived electrical calculations (DC capacity + DC/AC ratio).
+P5B — one-String-per-MPPT workflow enforcement.
+P5C — MPPT utilization + configurable threshold slider + soft (non-blocking) warnings.
+P5D — intra-string wiring visualization + real center-to-center cable-length estimate.
+P5E — homerun wiring + user-placed Termination Point (real homerun length to a real placed point).
+Array Rotation + Freeze (Step 7 rigid-transform array alignment).
+Multi-Inverter (minimal MVP) — multiple manually-added inverters, per-inverter scoping.
+
+DEFERRED (post customer-feedback, per Harsha's "ship working MVP → feedback → refine"):
+
+P6 full cable routing (logical/routed toggle, roof-edge/obstacle-aware routing).
+P7 shortest-path routing optimization (the "O-to-E / MST" idea from the call).
+Manual cable drag-edit (F11).
+P8 validation & warnings (Harsha explicitly deferred).
+Auto string creation (F4) — manual-only for now (stringing follows real panel arrangement; build auto later if requested).
+Remove-inverter, multiple termination points, per-inverter homeruns.
+A1. Electrical catalog data is DEVELOPMENT data (fabrication-discipline rule)
+
+This is the single most important operating rule for this module and MUST be respected by every future contributor.
+
+Every electrical NUMBER the module displays is one of exactly three things:
+
+REAL — computed from real data the module actually has (e.g. DC capacity from real panel wattage).
+HONESTLY PENDING — shown as "—" or "Pending …" because the real data is not present (never a plausible-but-fake placeholder).
+CLEARLY-LABELED INDICATIVE — computed from development-grade catalog data and labeled as such (not presented as certified engineering).
+
+Two concrete product-data dependencies exist today. DO NOT "fix" them by estimating values:
+
+Panel STC specs (vmpV, impA, vocV, iscA) are NOT in panelTypes.js. The catalog only has powerW (and dimensions). Therefore:
+String / MPPT Voltage, Current, and Operating Power display "—" (honestly pending).
+Installed DC Capacity and DC/AC Ratio DO compute (they only need real wattage).
+A JSDoc comment in electricalCalculations.js and near the panelTypes.js spec fields forbids deriving V/I from powerW or estimating specs. When the real item-master provides verified per-SKU datasheet values, string/MPPT operating metrics activate automatically — no code change.
+History note: an early implementation ADDED estimated Vmp/Imp values; these were caught and REVERTED. Do not reintroduce them.
+Inverter catalog values (inverterCatalog.js), especially mpptCapacityKw, are development estimates (evidence: mpptCapacityKw ≈ AC rating ÷ MPPT count, i.e. derived, not a datasheet per-MPPT DC input limit). Therefore:
+MPPT Utilization is INDICATIVE (labeled "catalog rating"), acceptable because it drives a soft, user-adjustable threshold — NOT a certified compliance check.
+When the real inverter item-master is connected, utilization sharpens automatically.
+
+Rule for future work: real, honestly-pending, or clearly-labeled-indicative — never plausible-but-fake. This applies to cable lengths and every other electrical number too.
+
+A2. Step-7 Array Rotation + Freeze (controlled exception to "read-only placement")
+
+v1.0 body (§12a, §Domain Model) states orientation/tilt changes = layout REGENERATION (Step-6 pattern), NOT mesh rotation. Array alignment rotation is a NEW, deliberate, narrow exception.
+
+Need: roofs face arbitrary directions (e.g. 217° SW); panels on the default grid look visually misaligned with the roof. Users need to rotate an array to ANY angle (slider) so the grid visually aligns.
+
+Design chosen (after rejecting two alternatives):
+
+REJECTED regeneration-at-angle: would produce new slotIds / different panel count → breaks panel identity that strings/wiring depend on.
+REJECTED per-panel panelOverrides.positions: heavier than needed for a uniform whole-array rotation; adds a new coordinate-override layer to the core pipeline.
+CHOSEN (Option C) — array-level rigid transform:
+ElectricalArray.rotationDeg (absolute, default 0) + ElectricalArray.frozen (default false).
+At layout-resolve time, applyElectricalArrayRotations() rigidly rotates that array's panels around their centroid by rotationDeg. SAME panels, SAME slotIds, SAME count, SAME membership — only geometry turns.
+ABSOLUTE-from-baseline: always computed from generatedPanelLayout + panelOverrides, never from already-rotated coordinates (idempotent; 30° then 45° = 45° from baseline, not 75°; no floating-point drift).
+Applied as a read-side transform in the DesignStudio resolve pipeline (both PA and legacy paths); baseline geometry is never mutated → single source of truth preserved.
+Freeze lifecycle: manual freeze while arranging; AUTO-freeze on string-create / MPPT-assign (so a stringed array can't be silently rotated out from under its strings). NOT auto-frozen after rotate (so angles can be iterated).
+Invalidation: rotating a configured array → confirmation → reuse purgeStringsAndSyncArrays() + MPPT sync (same pattern as split/merge). Nothing goes silently stale.
+Containment: reject rotations that push panels outside the installable region (reuse panelFitsInstallable()), all-or-nothing.
+Merge: blocked if rotationDeg differs. Split: children inherit rotationDeg, reset frozen=false.
+UI: contextual "Array Tools" toolbar (Rotate + Freeze) replacing the Zones "Vertices|Move" toolbar in Step 7; functional only.
+
+KNOWN ISSUE: array rotation works but the interaction/UX is not perfectly satisfying. Flagged as a FUTURE REFINEMENT (post-feedback). Functionally correct and safe; the polish is deferred.
+
+A3. F7 clarification — Termination Point is USER-PLACED (P5D/P5E cable story)
+
+v1.0 F7 says the inverter is a logical termination point, "not rendered", "downstream team handles physical placement." Implementation revealed the honest consequence for cable length:
+
+Only panels have real coordinates. Strings/arrays derive geometry from panels. MPPTs/inverter/termination have NO position.
+Therefore cable length splits into two honest parts:
+Intra-string cable (panel → panel along orderedPanelSequence): REAL geometry, computed as horizontal center-to-center XZ distance (labeled an ESTIMATE, since it's module-center not lug-to-lug). This is P5D.
+Homerun cable (string end → inverter/termination): CANNOT be computed without a real termination position. A made-up position would produce a fabricated length (forbidden by A1).
+DECISION (P5E): the user PLACES the termination point on the workspace. Only then is the homerun length real (routes to a real placed coordinate).
+Minimal model TerminationPoint { id, x, z } (no roofId). Placement anywhere on the workspace (Y=0 plane; visual Y = roof height if over a roof, else ground). One point max (re-place moves it). Selectable / deletable; persisted in DesignStudio like arrays.
+DERIVED-ONLY wiring: composeEffectiveWiring() recomputes homeruns from strings + layout + termination; NOTHING is persisted to cables[]. Deleting the termination point therefore CANNOT leave stale cables (structural guarantee, not a cleanup step).
+Homerun routing is straight-line for MVP (labeled estimate). Full routing/shortest-path is deferred (P6/P7).
+Homerun length shows "Pending Termination Placement" (not a number) when no point is placed.
+Homeruns render for all wiring-complete strings regardless of MPPT/inverter assignment (physical path ≠ logical assignment).
+Termination is INDEPENDENT of inverter count (one shared termination point even with multiple inverters).
+
+WORKFLOW NOTE: repositioning the termination point is done by Delete + re-Place (drag-to-reposition was intentionally NOT built for the MVP — deleting and re-placing is sufficient and avoids interaction complexity). Not a bug; a scoping decision.
+
+A4. Multiple Inverters (minimal MVP) — implemented as a strict generalization
+
+F6 (multiple inverters) is implemented. It is a STRICT GENERALIZATION of the single-inverter code: a project with exactly one inverter behaves identically to before (no migration).
+
+Key facts:
+
+The domain model was already multi-inverter-capable: MPPT.inverterId already existed; Inverter.mpptIds[] and createMpptsForInverter() already per-inverter; assignStringToMppt() already had a cross-inverter guard. The gap was UI assumptions (inverters[0], replace-not-add) and calculation scoping.
+Implemented:
+Add multiple inverters from the catalog. ADD_INVERTER_FROM_CATALOG APPENDS and generates MPPTs only for the new inverter; existing inverters/MPPTs are never regenerated. (First inverter still uses the original replace path → N=1 identical.)
+Each inverter owns its MPPTs; electrical tree is Inverter → MPPT → Strings, repeated per inverter.
+String → MPPT assignment scoped by inverter (grouped MPPT picker; the MPPT's inverterId is authoritative). One-string-per-MPPT still enforced per MPPT. normalizeOneStringPerMppt() overflow migration is restricted to empty MPPTs of the SAME inverter (must never migrate a string across inverters).
+DC/AC ratio is PER-INVERTER: computeInverterAssignedDcCapacity() sums only strings assigned to that inverter's MPPTs. UNASSIGNED strings contribute to NO inverter (avoids fake ratios). NOTE: this differs slightly from the old system-wide sum when unassigned panels exist (it is more accurate). For a fully-assigned single-inverter design the number is unchanged.
+MPPT utilization is per-inverter (same formula, scoped).
+Changing an existing inverter's spec regenerates ONLY that inverter's MPPTs and clears ONLY its assignments (confirmation first). It must NOT route through the global replace path that would clear all inverters.
+Persistence: inverters + MPPTs persist across wizard-step navigation (like arrays/termination), so a multi-inverter design survives Step 7 → 8 → 7 for live demos.
+OUT OF SCOPE (unchanged from v1.0 deferrals): remove-inverter, auto inverter sizing/creation, auto DC balancing, auto string distribution, optimizers, multiple termination points, per-inverter homeruns/routing.
+P5E (shared termination + homeruns) is UNCHANGED by multi-inverter.
+A5. Working discipline that shaped this module (for future contributors)
+Plan-first on any geometry / pipeline-boundary / cross-cutting change (rotation and termination both went plan-first; it repeatedly converted a risky approach into a safe one).
+Verify in the RUNNING APP, not just the build log or verify*.mjs scripts. Scripts prove pure-function logic; they cannot prove UI/interaction/persistence. Several interaction bugs (termination layer-mount gate, OrbitControls freeze) passed scripts but only surfaced in-app.
+One bounded task per prompt; commit each verified step.
+Electrical is READ-ONLY downstream of placement — EXCEPT the deliberate Step-7 rotation exception (A2), which is a read-side transform that still never mutates baseline geometry.
+Do not fabricate numbers (A1). This is the module's defining discipline.
+A6. Verify scripts (pure-function regression)
+
+frontend/scripts/: verifyElectricalCalculations, verifyOneStringPerMppt, verifyMpptUtilization, verifyStringAssignment, verifyStringCreation, verifyStringManagement, verifyInverterFoundation, verifyArrayRenameMerge, verifyArraySplit, verifyArrayRotation, verifyIntraStringWiring, verifyHomerunWiring, verifyElectricalPanelSelection, verifyIndependentAreaConfig. Run e.g.: npx vite-node scripts/verifyHomerunWiring.mjs. These are logic checks only — always also verify in the running app.

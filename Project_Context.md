@@ -49,7 +49,16 @@ Array = organizational group of panels (one orientation/tilt per array — MVP r
 String = panels wired in series; this is where electrical values (V/I/P) live.
 MPPT = charge controller; an inverter input channel; usually one string per MPPT.
 Inverter = device holding the MPPTs; converts DC->AC; represented as a termination point, NOT rendered as a 3D object.
-Cable = DC wiring (logical or routed mode); has a calculated length. Energy and downstream modules may CONSUME electrical output, but the upstream placement pipeline remains IMMUTABLE. The architecture, domain model, roadmap, and open questions for this module are defined in ElectricalDesign_TDD.md, which is the source of truth for the module. UI beautification for this module is handled by the FlowX front-end team; this module builds FUNCTIONAL UI only.
+Cable = DC wiring (logical or routed mode); has a calculated length. Energy and downstream modules may CONSUME electrical output, but the upstream placement pipeline remains IMMUTABLE. The architecture, domain model, roadmap, and open questions for this module are defined in ElectricalDesign_TDD.md (v1.0 + ADDENDUM A), which is the source of truth for the module. UI beautification for this module is handled by the FlowX front-end team; this module builds FUNCTIONAL UI only.
+
+Implementation status (as of 2026-08-01): the Electrical Design module is FEATURE-COMPLETE for the MVP — arrays (rename/split/merge/rotate), strings, MPPTs, MULTIPLE INVERTERS, per-inverter DC/AC + utilization, intra-string + homerun wiring with a user-placed termination point and real cable length. See CURRENT_STATUS.md and ElectricalDesign_TDD.md Addendum A.
+
+Additional locked points established during implementation (details in TDD Addendum A):
+
+MULTIPLE INVERTERS are supported (F6). Each inverter owns its MPPTs; DC/AC ratio and utilization are per-inverter; one shared termination point regardless of inverter count.
+The inverter TERMINATION POINT is USER-PLACED on the workspace (so homerun cable length is real, not fabricated). Reposition = delete + re-place for the MVP.
+Step-7 ARRAY ROTATION is the one deliberate, narrow exception to "read-only placement": it is a read-side RIGID transform (rotationDeg, absolute-from-baseline) that turns an array's panels around their centroid WITHOUT mutating baseline geometry or changing panel identity. It is NOT layout regeneration. (Currently works but UX imperfect — a flagged future refinement.)
+DATA-HONESTY PRINCIPLE (applies module-wide, and is a good principle for the whole product): every displayed number is REAL, honestly-PENDING ("—"), or clearly-labeled-INDICATIVE — NEVER plausible-but-fake. The electrical catalogs (panel STC specs, inverter capacities) are development-grade placeholders today; string V/I show "—" until real panel datasheet specs exist, and MPPT utilization is labeled indicative until the real inverter item-master connects. Do NOT resolve these by estimating values.
 Open — NOT yet decided (do not invent answers)
 
 When we reach these, we will decide together. Until then, leave clean placeholders and do not hardcode assumptions.

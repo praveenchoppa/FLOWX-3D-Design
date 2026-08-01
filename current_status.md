@@ -2,13 +2,14 @@ Current Status — LumenDesignX
 
 Where we are
 
-Steps 1–5 and 5H COMPLETE. Step 6 (Panels) LARGELY COMPLETE: 6A-1..6A-4 (definition, auto-placement, 3D render, capacity), 6B-1 (manual edit: select/delete/add/undo-redo), 6C-6 (clearances + grid/containment/irregular-fill), 6C-1/6C-2 (array grouping + manager) all DONE. Steps 7 (Energy: 7A/7B/7C) and 8 (Financials: 8A–8E) built and functional. Remaining in earlier steps: 5E full merge/split (deferred); panel drag-move/rotate (rotate button currently non-functional — fix later, NOT an electrical dependency); string-level work.
+Steps 1–5 and 5H COMPLETE. Step 6 (Panels) LARGELY COMPLETE: 6A-1..6A-4 (definition, auto-placement, 3D render, capacity), 6B-1 (manual edit: select/delete/add/undo-redo), 6C-6 (clearances + grid/containment/irregular-fill), 6C-1/6C-2 (array grouping + manager) all DONE. ELECTRICAL DESIGN (Step 7) FEATURE-COMPLETE for the MVP (P0→P5E + array rotation + multi-inverter — see the "ELECTRICAL DESIGN — module status (CURRENT)" section below). Energy and Financials (now Steps 8/9 after Electrical was inserted) built and functional. Remaining in earlier steps: 5E full merge/split (deferred); panel drag-move/rotate (rotate button currently non-functional — fix later, NOT an electrical dependency). NOTE: step numbers in the older per-step sections below predate the Electrical Design insertion (Energy/Financials shift by one). The pipeline diagram at the bottom is authoritative for order.
 
-NEW: ELECTRICAL DESIGN module introduced as workflow step between Panels and Energy.
+ELECTRICAL DESIGN module (workflow step between Panels and Energy) is now FEATURE-COMPLETE for the MVP. Full detail in the "ELECTRICAL DESIGN — module status (CURRENT)" section below.
 
-P0 DONE: empty "Electrical Design" wizard step (pipeline renumbered, pass-through, verified Panels→Electrical→Energy flow intact).
-Architecture FROZEN in ElectricalDesign_TDD.md (v1.0) — the source of truth.
-NEXT: P1 (Electrical Store + auto-create Arrays from placement areas + minimal functional workspace + array selection). Implementation begins task-by-task, starting with Task A (module folder scaffolding, no logic).
+Architecture FROZEN in ElectricalDesign_TDD.md (v1.0) + ADDENDUM A (implementation evolution) — read the TDD, then Addendum A, before any Electrical Design work.
+DONE: P0 → P5E, plus Array Rotation+Freeze and Multi-Inverter (minimal MVP). All verified in the running app.
+NEXT (pre-submit): end-to-end workflow bug-squash → functional UI polish → demo to Harsha. Then post-feedback: P6/P7 routing, P8 validation, and the deferred items listed below.
+Last updated: 2026-08-01.
 
 This file tracks workflow, features, and progress — not styling. UI/visual specs are per-task prompts. All UI follows design system (PROJECT_CONTEXT decision 9). Note: the frontend-design skill is NOT in the Cursor workspace — Cursor relies on existing 3D patterns + pinned three/R3F/drei versions.
 
@@ -96,37 +97,50 @@ View toggle (Steps 4–10) — DesignStudio: 2D/3D/Top segmented control visible
 
 Step 8E (customer electricity usage & coverage) — consumptionConfig.js + computeConsumptionResult.js + computeCoverageResult.js (parallel chain; reads financialInputs.tariffPerUnit only). consumptionInputs state separate from financialInputs. ConsumptionCoverageAnalysis.jsx: bill/units input, KPIs, Production vs Consumption + Coverage % charts. Informational only — savings/ROI/ cashflow engines untouched. Build: clean.
 
-ELECTRICAL DESIGN — module status
+ELECTRICAL DESIGN — module status (CURRENT)
 
-Status: Design COMPLETE. Architecture FROZEN in ElectricalDesign_TDD.md (v1.0). Implementation through P5D + Step 7 array rotation/freeze complete.
+Status: FEATURE-COMPLETE for the MVP. Architecture FROZEN in ElectricalDesign_TDD.md (v1.0) + ADDENDUM A (implementation evolution — read it: it records what was built and the data-honesty rules). All items below verified in the RUNNING APP, not just via scripts.
 
-Completed phases: P0 (wizard step) · P1 (store + arrays + workspace) · P2 (array edit + panel selection + split) · P3 (string create/manage) · P4 (inverter catalog + MPPT generation) · P4b (String→MPPT assignment) · P5A (derived DC capacity + DC/AC calculations) · P5B (one String per MPPT workflow enforcement) · P5C (MPPT utilization + allowed overload slider + soft warnings) · P5D (intra-string wiring visualization + center-to-center length estimate) · **Step 7 array rotation + freeze** · **P5E homerun wiring + user-placed Termination Point** (derived-only `EffectiveWiringLayout`, straight-line homerun, workspace placement plane, persistence like arrays).
+Reference (source of truth): ElectricalDesign_TDD.md — read it first, then Addendum A, for every Electrical Design prompt. Follow it exactly; deviate only if implementation reveals a genuine gap (then update the TDD/addendum, commit, continue).
 
-Verify: `npx vite-node scripts/verifyHomerunWiring.mjs` (plus existing P5 regression scripts).
+Electrical Design rules (quick reference):
 
-NEXT: P6 cable routing (logical/routed toggle) or next TDD phase.
-
-Reference (source of truth): ElectricalDesign_TDD.md — read it first for every Electrical Design prompt. Follow it exactly; do not deviate from the architecture unless implementation reveals a genuine gap (then update the TDD, commit, continue).
-
-Electrical Design rules (from the TDD — quick reference):
-
-Electrical Design CONSUMES panel placement READ-ONLY; never mutates roof / obstacles / simulation / zoning / panel placement.
-Arrays are auto-created from placement areas on entering the step.
+Electrical Design CONSUMES panel placement READ-ONLY; never mutates roof / obstacles / simulation / zoning / panel placement — EXCEPT the deliberate Step-7 array-rotation exception (a read-side rigid transform that still never mutates baseline geometry; see TDD Addendum A2).
+Arrays auto-created from placement areas on entering the step; rename / split / merge / rotate.
 One orientation/tilt per Array (MVP rule; different orientations = different arrays).
-Arrays own Strings (organizationally).
-Strings own the electrical values (voltage/current/power) — series connection.
-Strings connect to MPPTs (= charge controllers); usually one string per MPPT.
-MPPTs belong to Inverters; inverter is a termination point, NOT rendered in 3D.
-New ElectricalStore holds arrays[]/strings[]/mppts[]/inverters[]/cables[]; never mutates panel/placement state.
+Strings own the electrical values (series). One string per MPPT (enforced).
+MPPTs belong to Inverters; inverter is a logical termination point, NOT rendered in 3D.
+Multiple inverters supported (each owns its MPPTs; per-inverter DC/AC + utilization).
+ElectricalStore holds arrays[]/strings[]/mppts[]/inverters[]/cables[] + terminationPoint; wiring is DERIVED-ONLY (never persisted → no stale cables).
+DATA-HONESTY RULE (critical — see Addendum A1): every electrical number is REAL, honestly-PENDING ("—"), or clearly-labeled-INDICATIVE — never plausible-but-fake.
 UI is FUNCTIONAL only — FlowX front-end team does the beautification.
 
-Implementation roadmap (see TDD section 11 for detail): P0 DONE — empty wizard step. P1 — Electrical Store + auto-create arrays + minimal workspace + selection (no edit). Task A: module folder scaffolding (features/ElectricalDesign/ with components/ hooks/ store/ services/ models/ utils/ constants/) — NO electrical logic, scaffolding only. Task B: ElectricalStore + auto-create one Array per placement area (VERIFY HARDEST — first touch of existing pipeline; confirm panel/ placement data untouched and Energy/Financial still correct). Task C: minimal functional workspace (toolbar/sidebar/canvas/properties). Task D: array selection + verify initialization. P2 — array editing (rename/split/merge; see TDD 12a merge/split rules). P3 — string creation (manual, then auto). P4 — inverter catalog + selection + MPPT assignment + balancing. P5 — electrical calculations (verify math vs a known example; confirm formulas with Harsha first — TDD open question 8). P6 — cable routing (logical → routed → length → drag-edit). P7 — shortest-path routing optimization (strong model; confirm algorithm intent). P8 — validation & warnings (deferred until after customer feedback).
+COMPLETED phases (all verified in-app): P0 empty wizard step. P1 Electrical Store + auto-create arrays + workspace + array selection. P2 array editing (rename / merge / split) + electrical panel-selection infrastructure. P3 string creation (manual) + string management. P4 inverter catalog + selection + MPPT generation. P4b String → MPPT assignment. P5A derived DC capacity + DC/AC ratio (REAL, from wattage). NOTE: string/MPPT Voltage/Current/Operating-Power show "—" pending REAL panel STC specs (vmpV/impA) — see data dependency below. Do NOT estimate them. P5B one-String-per-MPPT enforcement (workflow rule; data model stays flexible). P5C MPPT utilization + configurable threshold slider (default 100%, ~80–130%, soft non-blocking alert). Utilization is INDICATIVE (inverter catalog is dev data) — see data dependency below. P5D intra-string wiring visualization + REAL center-to-center cable-length estimate. P5E homerun wiring + USER-PLACED Termination Point. Real homerun length to a real placed point; "Pending Termination Placement" when none. Derived-only EffectiveWiringLayout; straight-line routing (labeled estimate); persists across steps. Reposition = Delete + re-Place (drag intentionally not built for MVP — acceptable, not a bug). ARRAY ROTATION + FREEZE Option C rigid transform (rotationDeg absolute-from-baseline; rotates panels around centroid at resolve time; identity preserved; auto-freeze on stringing; purge-on-configured-rotate). KNOWN ISSUE: works but UX not perfect — flagged as a FUTURE REFINEMENT (functionally correct/safe; polish deferred). MULTI-INVERTER (minimal MVP) multiple manually-added inverters; each owns its MPPTs; string→MPPT scoped by inverter; per-inverter DC/AC ratio (excludes unassigned strings); per-inverter utilization; multi-inverter tree; scoped spec-change (purge, not migrate); persistence across steps. One SHARED termination point (P5E unchanged). Strict generalization — a single-inverter project behaves identically to before. See Addendum A4.
 
-Per-task discipline: prompt begins "Read ElectricalDesign_TDD.md first, follow it, implement only [task]"; analyze-first if structural; VERIFY in the running app (not the build log); commit each verified task.
+TWO PRODUCT-DATA DEPENDENCIES (do NOT resolve by estimating — see Addendum A1):
 
-NEXT
+Panel STC specs (vmpV/impA) absent from panelTypes.js → string/MPPT V/I/Operating-Power show "—". Add verified per-SKU datasheet values (from the real item-master) to activate them automatically. DC capacity + DC/AC ratio already work (real wattage).
+Inverter catalog values (esp. mpptCapacityKw) are development estimates → MPPT utilization is INDICATIVE (labeled). Sharpens automatically when the real inverter item-master connects.
 
-ELECTRICAL DESIGN P5E+ — termination placement + homerun cable length (when confirmed). 5E (full) — Merge + split zones (deferred). Panel drag-move / rotate — rotate control currently non-functional; fix later (NOT an electrical dependency).
+Verify scripts (frontend/scripts/, pure-function only — always also verify in-app): verifyElectricalCalculations, verifyOneStringPerMppt, verifyMpptUtilization, verifyStringAssignment, verifyStringCreation, verifyStringManagement, verifyInverterFoundation, verifyArrayRenameMerge, verifyArraySplit, verifyArrayRotation, verifyIntraStringWiring, verifyHomerunWiring, verifyElectricalPanelSelection, verifyIndependentAreaConfig.
+
+NEXT (pre-submit, in order)
+
+End-to-end Step-7 workflow bug-squash — run as an EPC engineer: split → merge → rotate → strings → assign MPPT (across multiple inverters) → place termination → cable lengths → properties → navigate away & back (persistence). Hit cross-feature cases (rotate a stringed array; multi-inverter persistence; panel selection still works). Squash bugs; commit each fix.
+Functional UI polish — legibility of cable lengths / labels / selection highlights; empty states; disable-invalid buttons. Existing design tokens only; FlowX team beautifies later.
+Update this file + build the standalone project doc; PUSH the repo (currently local-only).
+Demo to Harsha / founding members. (Then post-feedback refinement drives P6/P7/P8 etc.)
+
+
+P6 full cable routing (logical/routed toggle, roof-edge/obstacle-aware).
+P7 shortest-path routing optimization ("O-to-E / MST" from the call).
+Manual cable drag-edit (F11).
+P8 validation & warnings (Harsha explicitly deferred).
+Auto string creation (F4) — manual-only for now.
+Array-rotation UX refinement (works but imperfect).
+Termination drag-to-reposition (Delete + re-Place is the MVP workflow).
+Remove-inverter, multiple termination points, per-inverter homeruns.
+Panel drag-move / individual-panel rotate (Step 6 rotate button non-functional — NOT an electrical dependency).
 
 DEFERRED — future upgrades & polish, BY STEP
 

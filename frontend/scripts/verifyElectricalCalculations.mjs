@@ -95,8 +95,31 @@ let strings = str1Result.strings;
 let mppts = createdMppts;
 
 let assign = assignStringToMppt(strings, mppts, str1Result.string.id, mppt1.id, inverter.id);
+assert(assign.ok, "string 1 assigned");
 strings = assign.strings;
 mppts = assign.mppts;
+const assign1 = assign;
+
+const str2Unassigned = createStringFromSelection(
+  str1Result.arrays,
+  assign1.strings,
+  "arr-1",
+  ["r1::0::2"],
+  panelLayout,
+);
+assert(str2Unassigned.ok, "unassigned string fixture");
+const unassignedMetrics = computeElectricalMetrics({
+  arrays: str2Unassigned.arrays,
+  strings: str2Unassigned.strings,
+  mppts: assign1.mppts,
+  inverters: [inverter],
+  inverter,
+  panelLayout,
+});
+assert(unassignedMetrics.inverter.totalDcCapacityW === 1100, "only assigned string DC counts");
+assert(unassignedMetrics.inverter.assignedStringCount === 1, "one assigned string");
+
+console.log("✓ unassigned strings excluded from inverter DC");
 
 const str2Result = createStringFromSelection(
   str1Result.arrays,
@@ -115,6 +138,7 @@ const metrics = computeElectricalMetrics({
   arrays: str2Result.arrays,
   strings,
   mppts,
+  inverters: [inverter],
   inverter,
   panelLayout,
 });
@@ -128,11 +152,12 @@ assert(mppt2Metrics.dcCapacityW === 540, "MPPT 2 DC capacity");
 assert(mppt1Metrics.voltageV == null, "MPPT voltage pending without STC specs");
 
 assert(metrics.inverter != null, "inverter metrics present");
-assert(metrics.inverter.totalDcCapacityW === 550 + 550 + 540, "system DC = all array panels (single-inverter MVP)");
+assert(metrics.inverter.totalDcCapacityW === 550 + 550 + 540, "inverter DC = assigned strings only (all assigned in fixture)");
 assert(metrics.inverter.totalDcCapacityKw === 1.64, "DC kW rounded");
 assert(metrics.inverter.dcAcRatio === 0.02, "DC/AC = 1.64/100");
+assert(metrics.inverter.assignedStringCount === 2, "assigned string count");
 
-console.log("✓ MPPT + inverter DC capacity (single-inverter MVP scope)");
+console.log("✓ MPPT + inverter DC capacity (per-inverter assigned-string scope)");
 
 assert(Array.isArray(metrics.warnings) && metrics.warnings.length === 0,
   "warnings array reserved empty");
