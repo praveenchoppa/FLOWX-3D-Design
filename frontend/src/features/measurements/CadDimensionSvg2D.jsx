@@ -1,5 +1,8 @@
 /**
  * CadDimensionSvg2D.jsx — CAD dimension annotation as SVG (2D map overlay).
+ *
+ * Presentation-only. Geometry comes from buildCadDimensionSpec (rectangle) or
+ * a prebuilt axes[] array (roof edge dimensions).
  */
 
 import {
@@ -39,16 +42,16 @@ function SvgSegment({ start, end, color, strokeWidth = 1.5 }) {
   );
 }
 
-function DimensionLabelSvg2D({ textPt, label, style }) {
+function DimensionLabelSvg2D({ textPt, label, style, labelAngleDeg = 0 }) {
   const box = estimateLabelBox(label);
-  const x = textPt.x - box.width / 2;
-  const y = textPt.y - box.height - 2;
+  const cx = textPt.x;
+  const cy = textPt.y;
 
   return (
-    <g>
+    <g transform={`rotate(${labelAngleDeg} ${cx} ${cy})`}>
       <rect
-        x={x}
-        y={y}
+        x={cx - box.width / 2}
+        y={cy - box.height / 2}
         width={box.width}
         height={box.height}
         rx={CAD_LABEL_RADIUS}
@@ -59,8 +62,8 @@ function DimensionLabelSvg2D({ textPt, label, style }) {
         opacity={0.96}
       />
       <text
-        x={textPt.x}
-        y={y + box.height / 2 + 1}
+        x={cx}
+        y={cy}
         fill={style.text}
         fontSize={CAD_TEXT_SIZE_2D_PX}
         fontWeight="600"
@@ -95,14 +98,36 @@ function CadAxisSvg2D({ axis, map, centre, style }) {
         const px = segmentToPixel(map, seg, centre);
         return <SvgSegment key={`ar-${i}`} start={px.start} end={px.end} color={style.line} strokeWidth={1.8} />;
       })}
-      <DimensionLabelSvg2D textPt={textPt} label={axis.label} style={style} />
+      {!axis.suppressLabel && (
+        <DimensionLabelSvg2D
+          textPt={textPt}
+          label={axis.label}
+          style={style}
+          labelAngleDeg={axis.labelAngleDeg ?? 0}
+        />
+      )}
     </g>
   );
 }
 
+/**
+ * @param {{
+ *   map: object,
+ *   centre: { lat: number, lng: number },
+ *   axes?: object[]|null,
+ *   centerX?: number,
+ *   centerZ?: number,
+ *   rotationY?: number,
+ *   widthX?: number,
+ *   lengthY?: number,
+ *   category?: string,
+ *   dimOffset?: number,
+ * }} props
+ */
 export default function CadDimensionSvg2D({
   map,
   centre,
+  axes = null,
   centerX,
   centerZ,
   rotationY,
@@ -113,21 +138,26 @@ export default function CadDimensionSvg2D({
 }) {
   const style = getCadCategoryStyle(category);
 
-  const spec = buildCadDimensionSpec({
-    centerX,
-    centerZ,
-    rotationY,
-    widthX,
-    lengthY,
-    offset: dimOffset,
-  });
+  const resolvedAxes = axes ?? (() => {
+    const spec = buildCadDimensionSpec({
+      centerX,
+      centerZ,
+      rotationY,
+      widthX,
+      lengthY,
+      offset: dimOffset,
+    });
+    if (!spec) return null;
+    return [spec.width, spec.length];
+  })();
 
-  if (!spec || !map) return null;
+  if (!resolvedAxes?.length || !map) return null;
 
   return (
     <g className="pointer-events-none select-none">
-      <CadAxisSvg2D axis={spec.width} map={map} centre={centre} style={style} />
-      <CadAxisSvg2D axis={spec.length} map={map} centre={centre} style={style} />
+      {resolvedAxes.map((axis, i) => (
+        <CadAxisSvg2D key={`axis-${i}`} axis={axis} map={map} centre={centre} style={style} />
+      ))}
     </g>
   );
 }

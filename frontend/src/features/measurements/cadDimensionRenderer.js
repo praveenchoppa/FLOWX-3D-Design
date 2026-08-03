@@ -5,7 +5,7 @@
  * in world XZ for oriented rectangular footprints. Does NOT modify measurements.
  */
 
-import { formatMeasurement } from "./measurementUtils";
+import { computeRoofEdgeMeasurements, formatMeasurement } from "./measurementUtils";
 
 export const CAD_DIM_OFFSET       = 0.45;
 /** Roof-only — farther from boundary for presentation readability. */
@@ -13,6 +13,9 @@ export const CAD_DIM_OFFSET_ROOF  = 0.58;
 export const CAD_DIM_EXTENSION    = 0.12;
 export const CAD_ARROW_LENGTH     = 0.14;
 export const CAD_ARROW_ANGLE      = Math.PI / 7;
+
+/** Hide roof edge labels below this length (m); lines/arrows still draw. */
+export const MIN_ROOF_DIM_LABEL_M = 0.50;
 
 /** ~25% larger than original 0.24 — presentation-readable on laptop. */
 export const CAD_TEXT_SIZE_3D     = 0.30;
@@ -168,6 +171,89 @@ export function buildCadDimensionSpec({
   };
 
   return { width: widthAxis, length: lengthAxis };
+}
+
+/**
+ * Readable label angle (degrees) for an edge tangent in scene XZ.
+ * Keeps text within ≈ [−90°, +90°] so labels are never upside-down.
+ *
+ * @param {{ x: number, z: number }} tangent  unit tangent along the edge
+ * @returns {number}
+ */
+export function readableLabelAngleDeg(tangent) {
+  if (!tangent) return 0;
+  let deg = (Math.atan2(tangent.z, tangent.x) * 180) / Math.PI;
+  if (deg > 90) deg -= 180;
+  if (deg <= -90) deg += 180;
+  return deg;
+}
+
+/**
+ * Build CAD dimension axes for every measured roof edge (roof-only).
+ * Does NOT use buildCadDimensionSpec — non-roof categories keep that path.
+ *
+ * @param {Array<{
+ *   start: { x: number, z: number },
+ *   end: { x: number, z: number },
+ *   lengthM: number,
+ *   midpoint: { x: number, z: number },
+ *   tangent: { x: number, z: number },
+ *   outwardNormal: { x: number, z: number },
+ * }>} edges
+ * @param {number} [offset]
+ * @returns {object[]}
+ */
+export function buildCadRoofEdgeDimensionSpecs(edges, offset = CAD_DIM_OFFSET_ROOF) {
+  if (!edges?.length) return [];
+
+  const ext = CAD_DIM_EXTENSION;
+  const axes = [];
+
+  for (const edge of edges) {
+    const { start, end, lengthM, tangent, outwardNormal } = edge;
+    if (!Number.isFinite(lengthM) || lengthM < 1e-4) continue;
+    if (!tangent || !outwardNormal) continue;
+
+    const ox = outwardNormal.x * offset;
+    const oz = outwardNormal.z * offset;
+    const ex = outwardNormal.x * (offset + ext);
+    const ez = outwardNormal.z * (offset + ext);
+
+    const d0 = { x: start.x + ox, z: start.z + oz };
+    const d1 = { x: end.x + ox, z: end.z + oz };
+    const e0 = { x: start.x + ex, z: start.z + ez };
+    const e1 = { x: end.x + ex, z: end.z + ez };
+
+    axes.push({
+      extensionLines: [
+        { start, end: e0 },
+        { start: end, end: e1 },
+      ],
+      dimensionLine: { start: d0, end: d1 },
+      arrowLeft:  arrowheadSegments(d0, unitAlong(d0, d1, +1)),
+      arrowRight: arrowheadSegments(d1, unitAlong(d1, d0, +1)),
+      textAnchor: { x: (d0.x + d1.x) / 2, z: (d0.z + d1.z) / 2 },
+      label: formatMeasurement(lengthM),
+      labelAngleDeg: readableLabelAngleDeg(tangent),
+      suppressLabel: lengthM < MIN_ROOF_DIM_LABEL_M,
+    });
+  }
+
+  return axes;
+}
+
+/**
+ * Shared roof geometry entry for 2D + 3D overlays.
+ *
+ * @param {number[][]} coordinates
+ * @param {{ lat: number, lng: number }} centre
+ * @param {number} [offset]
+ * @returns {object[]}
+ */
+export function buildRoofCadAxesFromCoordinates(coordinates, centre, offset = CAD_DIM_OFFSET_ROOF) {
+  const measured = computeRoofEdgeMeasurements(coordinates, centre);
+  if (!measured?.edges?.length) return [];
+  return buildCadRoofEdgeDimensionSpecs(measured.edges, offset);
 }
 
 function unitAlong(from, to, sign) {

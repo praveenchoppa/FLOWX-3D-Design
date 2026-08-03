@@ -7,8 +7,12 @@ import { useMap } from "react-leaflet";
 
 import { computeDesignCenter } from "../view3d/roofGeometry3d";
 import CadDimensionSvg2D from "./CadDimensionSvg2D";
-import { CAD_CATEGORY, CAD_DIM_OFFSET_ROOF, roofCentroidSceneXZ, shouldShowCadObject } from "./cadDimensionRenderer";
-import { computeRoofSectionDimensions } from "./measurementUtils";
+import {
+  CAD_CATEGORY,
+  CAD_DIM_OFFSET_ROOF,
+  buildRoofCadAxesFromCoordinates,
+  shouldShowCadObject,
+} from "./cadDimensionRenderer";
 
 export default function MeasurementOverlay2D({
   showDimensions  = false,
@@ -41,18 +45,18 @@ export default function MeasurementOverlay2D({
           ? roofEditLive.coordinates
           : sec.coordinates;
 
-        const dims = computeRoofSectionDimensions(liveCoords, centre);
-        const c = roofCentroidSceneXZ(liveCoords, centre);
+        const axes = buildRoofCadAxesFromCoordinates(
+          liveCoords,
+          centre,
+          CAD_DIM_OFFSET_ROOF,
+        );
         return {
           id:        sec.id,
-          centerX:   c.x,
-          centerZ:   c.z,
-          rotationY: ((sec.azimuth ?? 180) * Math.PI) / 180,
-          widthX:    dims.widthX,
-          lengthY:   dims.lengthY,
+          axes,
           isEditing: measureEditRoof && sec.id === selectedRoofId,
         };
-      });
+      })
+      .filter((item) => item.axes.length > 0);
   }, [roofSections, centre, roofEditLive, selectedRoofId, measureEditRoof]);
 
   const visibleItems = allowRoof
@@ -80,13 +84,8 @@ export default function MeasurementOverlay2D({
           key={item.id}
           map={map}
           centre={centre}
-          centerX={item.centerX}
-          centerZ={item.centerZ}
-          rotationY={item.rotationY}
-          widthX={item.widthX}
-          lengthY={item.lengthY}
+          axes={item.axes}
           category={CAD_CATEGORY.ROOF}
-          dimOffset={CAD_DIM_OFFSET_ROOF}
         />
       ))}
     </svg>

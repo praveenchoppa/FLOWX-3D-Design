@@ -1,5 +1,8 @@
 /**
  * CadDimensionAnnotation3D.jsx — Engineering CAD dimension annotation (3D deck plane).
+ *
+ * Presentation-only. Geometry comes from buildCadDimensionSpec (rectangle) or
+ * a prebuilt axes[] array (roof edge dimensions).
  */
 
 import { Html, Line } from "@react-three/drei";
@@ -30,11 +33,17 @@ function DeckSegment({ start, end, y, color, lineWidth = 1.5 }) {
 }
 
 function DimensionLabel3D({ axis, y, style }) {
+  if (axis.suppressLabel) return null;
+
+  const useEdgeAlign = Number.isFinite(axis.labelAngleDeg);
+  const labelAngleRad = useEdgeAlign ? (axis.labelAngleDeg * Math.PI) / 180 : 0;
+
   return (
     <Html
       position={[axis.textAnchor.x, y + TEXT_Y_LIFT, axis.textAnchor.z]}
-      rotation={[-Math.PI / 2, 0, 0]}
+      rotation={[-Math.PI / 2, 0, labelAngleRad]}
       transform
+      center={useEdgeAlign}
       occlude={false}
       distanceFactor={10}
       zIndexRange={[100, 0]}
@@ -90,7 +99,21 @@ function CadDimensionAxis3D({ axis, y, style }) {
   );
 }
 
+/**
+ * @param {{
+ *   axes?: object[]|null,
+ *   centerX?: number,
+ *   centerZ?: number,
+ *   y: number,
+ *   rotationY?: number,
+ *   widthX?: number,
+ *   lengthY?: number,
+ *   category?: string,
+ *   dimOffset?: number,
+ * }} props
+ */
 export default function CadDimensionAnnotation3D({
+  axes = null,
   centerX,
   centerZ,
   y,
@@ -102,21 +125,26 @@ export default function CadDimensionAnnotation3D({
 }) {
   const style = getCadCategoryStyle(category);
 
-  const spec = buildCadDimensionSpec({
-    centerX,
-    centerZ,
-    rotationY,
-    widthX,
-    lengthY,
-    offset: dimOffset,
-  });
+  const resolvedAxes = axes ?? (() => {
+    const spec = buildCadDimensionSpec({
+      centerX,
+      centerZ,
+      rotationY,
+      widthX,
+      lengthY,
+      offset: dimOffset,
+    });
+    if (!spec) return null;
+    return [spec.width, spec.length];
+  })();
 
-  if (!spec) return null;
+  if (!resolvedAxes?.length) return null;
 
   return (
     <group>
-      <CadDimensionAxis3D axis={spec.width} y={y} style={style} />
-      <CadDimensionAxis3D axis={spec.length} y={y} style={style} />
+      {resolvedAxes.map((axis, i) => (
+        <CadDimensionAxis3D key={`axis-${i}`} axis={axis} y={y} style={style} />
+      ))}
     </group>
   );
 }

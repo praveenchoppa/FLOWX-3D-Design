@@ -16,15 +16,14 @@ import {
   CAD_DIM_OFFSET_ROOF,
   CAD_LABEL_BG,
   CAD_LABEL_RADIUS,
+  buildRoofCadAxesFromCoordinates,
   computePanelArrayFootprintVisual,
   getCadCategoryStyle,
-  roofCentroidSceneXZ,
   shouldShowCadObject,
 } from "./cadDimensionRenderer";
 import {
   computeObstacleDimensions,
   computeRingAxisDimensions,
-  computeRoofSectionDimensions,
   formatMeasurement,
 } from "./measurementUtils";
 
@@ -121,20 +120,19 @@ export default function MeasurementOverlay3D({
     return roofSections
       .filter((sec) => sec.coordinates?.length >= 3)
       .map((sec) => {
-        const dims = computeRoofSectionDimensions(sec.coordinates, designCentre);
-        const c = roofCentroidSceneXZ(sec.coordinates, designCentre);
-        const rotationY = ((sec.azimuth ?? 180) * Math.PI) / 180;
+        const axes = buildRoofCadAxesFromCoordinates(
+          sec.coordinates,
+          designCentre,
+          CAD_DIM_OFFSET_ROOF,
+        );
         return {
           id:        sec.id,
-          centerX:   c.x,
-          centerZ:   c.z,
+          axes,
           y:         roofDeckSurfaceY(sec),
-          rotationY,
-          widthX:    dims.widthX,
-          lengthY:   dims.lengthY,
           isEditing: !!measureEdit.roof && sec.id === selectedRoofId,
         };
-      });
+      })
+      .filter((ann) => ann.axes.length > 0);
   }, [roofSections, designCentre, measureEdit.roof, selectedRoofId]);
 
   const obstacleAnnotations = useMemo(() => (
@@ -204,14 +202,9 @@ export default function MeasurementOverlay3D({
         allowRoof && shouldShowCadObject(showDimensions, ann.isEditing) ? (
           <CadDimensionAnnotation3D
             key={`roof-${ann.id}`}
-            centerX={ann.centerX}
-            centerZ={ann.centerZ}
+            axes={ann.axes}
             y={ann.y}
-            rotationY={ann.rotationY}
-            widthX={ann.widthX}
-            lengthY={ann.lengthY}
             category={CAD_CATEGORY.ROOF}
-            dimOffset={CAD_DIM_OFFSET_ROOF}
           />
         ) : null
       ))}
