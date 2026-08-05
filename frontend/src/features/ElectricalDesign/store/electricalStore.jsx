@@ -38,6 +38,7 @@ import {
 import {
   addInverterFromCatalog,
   changeInverterSpecification,
+  removeInverterFromProject,
   selectInverterFromCatalog,
   syncMpptsAfterPlacementRefresh,
 } from "../models/inverter.js";
@@ -86,6 +87,7 @@ const ACTION = /** @type {const} */ ({
   SET_INVERTER_FROM_CATALOG:  "SET_INVERTER_FROM_CATALOG",
   ADD_INVERTER_FROM_CATALOG:    "ADD_INVERTER_FROM_CATALOG",
   CHANGE_INVERTER_SPEC:       "CHANGE_INVERTER_SPEC",
+  REMOVE_INVERTER:            "REMOVE_INVERTER",
   ASSIGN_STRING_TO_MPPT:      "ASSIGN_STRING_TO_MPPT",
   REMOVE_STRING_FROM_MPPT:    "REMOVE_STRING_FROM_MPPT",
   NORMALIZE_MPPT_ASSIGNMENTS: "NORMALIZE_MPPT_ASSIGNMENTS",
@@ -371,6 +373,22 @@ function electricalReducer(state, action) {
         strings,
         selectedInverterId: inverterId,
         selectedMpptId:     null,
+      };
+    }
+    case ACTION.REMOVE_INVERTER: {
+      const { inverters, mppts, strings, selectedInverterId } = action.payload;
+      const nextStringId = state.selectedStringId
+        && strings.some((s) => s.id === state.selectedStringId)
+        ? state.selectedStringId
+        : null;
+      return {
+        ...clearDesignSelectionState(state),
+        inverters,
+        mppts,
+        strings,
+        selectedInverterId: selectedInverterId ?? null,
+        selectedMpptId:     null,
+        selectedStringId:   nextStringId,
       };
     }
     case ACTION.ASSIGN_STRING_TO_MPPT: {
@@ -877,6 +895,29 @@ export function ElectricalStoreProvider({
     return result;
   }, [state.inverters, state.mppts, state.strings]);
 
+  const removeInverterAction = useCallback((inverterId) => {
+    const result = removeInverterFromProject(
+      inverterId,
+      state.inverters,
+      state.mppts,
+      state.strings,
+    );
+    if (!result.ok) return result;
+
+    const nextSelectedInverterId = result.inverters[0]?.id ?? null;
+
+    dispatch({
+      type: ACTION.REMOVE_INVERTER,
+      payload: {
+        inverters:          result.inverters,
+        mppts:              result.mppts,
+        strings:            result.strings,
+        selectedInverterId: nextSelectedInverterId,
+      },
+    });
+    return result;
+  }, [state.inverters, state.mppts, state.strings]);
+
   const assignStringToMppt = useCallback((stringId, mpptId) => {
     const result = assignStringToMpptPure(
       state.strings,
@@ -1315,6 +1356,7 @@ export function ElectricalStoreProvider({
       setInverterFromCatalog,
       addInverterFromCatalog: addInverterFromCatalogAction,
       changeInverterSpecification: changeInverterSpecAction,
+      removeInverter: removeInverterAction,
       assignStringToMppt,
       removeStringFromMppt,
       selectPanel,
@@ -1362,6 +1404,7 @@ export function ElectricalStoreProvider({
       setInverterFromCatalog,
       addInverterFromCatalogAction,
       changeInverterSpecAction,
+      removeInverterAction,
       assignStringToMppt,
       removeStringFromMppt,
       selectPanel,

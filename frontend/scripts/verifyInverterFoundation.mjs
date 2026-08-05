@@ -9,6 +9,7 @@ import {
   changeInverterSpecification,
   clearStringMpptAssignments,
   clearStringMpptAssignmentsForInverter,
+  removeInverterFromProject,
   selectInverterFromCatalog,
   syncMpptsAfterPlacementRefresh,
 } from "../src/features/ElectricalDesign/models/inverter.js";
@@ -16,6 +17,9 @@ import { mpptsForInverter } from "../src/features/ElectricalDesign/models/mppt.j
 import {
   createStringFromSelection,
 } from "../src/features/ElectricalDesign/models/string.js";
+import {
+  assertAssignmentSync,
+} from "../src/features/ElectricalDesign/models/stringAssignment.js";
 import { getCatalogEntry } from "../src/features/ElectricalDesign/constants/inverterCatalog.js";
 
 function assert(cond, msg) {
@@ -205,5 +209,95 @@ assert(
 );
 
 console.log("✓ changeInverterSpecification scoped to one inverter");
+
+// ── Remove inverter: preserve strings, clear only its assignments ────────────
+const removeSetup = addInverterFromCatalog(
+  fronius.catalogId,
+  afterReselect.inverters,
+  afterReselect.mppts,
+);
+assert(removeSetup.ok, "setup second inverter for remove");
+const remA = removeSetup.inverters[0];
+const remB = removeSetup.inverter;
+const remMpptA = removeSetup.mppts.find((m) => m.inverterId === remA.id);
+const remMpptB = removeSetup.mppts.find((m) => m.inverterId === remB.id);
+
+const remStrA = createStringFromSelection(
+  [array2],
+  [],
+  "arr-2",
+  ["r2::0::0"],
+  panelLayout,
+);
+const remStrB = createStringFromSelection(
+  remStrA.arrays,
+  remStrA.strings,
+  "arr-2",
+  ["r2::0::1"],
+  panelLayout,
+);
+assert(remStrA.ok && remStrB.ok, "strings for remove test");
+
+let remStrings = remStrB.strings.map((s) => {
+  if (s.id === remStrA.string.id) return { ...s, mpptId: remMpptA.id };
+  if (s.id === remStrB.string.id) return { ...s, mpptId: remMpptB.id };
+  return s;
+});
+let remMppts = removeSetup.mppts.map((m) => {
+  if (m.id === remMpptA.id) return { ...m, stringIds: [remStrA.string.id] };
+  if (m.id === remMpptB.id) return { ...m, stringIds: [remStrB.string.id] };
+  return m;
+});
+
+const removeResult = removeInverterFromProject(
+  remA.id,
+  removeSetup.inverters,
+  remMppts,
+  remStrings,
+);
+assert(removeResult.ok, "remove inverter succeeds");
+assert(removeResult.inverters.length === 1, "one inverter remains");
+assert(removeResult.inverters[0].id === remB.id, "other inverter preserved");
+assert(
+  !removeResult.mppts.some((m) => m.inverterId === remA.id),
+  "deleted inverter MPPTs removed",
+);
+assert(
+  removeResult.mppts.every((m) => m.inverterId === remB.id),
+  "remaining MPPTs belong to surviving inverter",
+);
+assert(removeResult.strings.length === remStrings.length, "all strings preserved");
+assert(
+  removeResult.strings.find((s) => s.id === remStrA.string.id)?.mpptId == null,
+  "string on deleted inverter becomes Unassigned",
+);
+assert(
+  removeResult.strings.find((s) => s.id === remStrB.string.id)?.mpptId === remMpptB.id,
+  "other inverter assignment preserved",
+);
+assert(
+  removeResult.strings.find((s) => s.id === remStrA.string.id)?.orderedPanelSequence?.length > 0,
+  "string geometry / panel sequence preserved",
+);
+assert(removeResult.assignedStringCount === 1, "reports cleared assignment count");
+assertAssignmentSync(removeResult.strings, removeResult.mppts);
+
+console.log("✓ removeInverterFromProject preserves strings as Unassigned");
+
+// ── Remove last inverter → zero-inverter state ───────────────────────────────
+const removeLast = removeInverterFromProject(
+  remB.id,
+  removeResult.inverters,
+  removeResult.mppts,
+  removeResult.strings,
+);
+assert(removeLast.ok, "remove last inverter succeeds");
+assert(removeLast.inverters.length === 0, "zero inverters allowed");
+assert(removeLast.mppts.length === 0, "all MPPTs removed");
+assert(removeLast.strings.length === removeResult.strings.length, "strings still preserved");
+assert(removeLast.strings.every((s) => s.mpptId == null), "no dangling string.mpptId");
+assertAssignmentSync(removeLast.strings, removeLast.mppts);
+
+console.log("✓ remove last inverter → valid zero-inverter state");
 
 console.log("\nAll inverter foundation verification tests passed.");

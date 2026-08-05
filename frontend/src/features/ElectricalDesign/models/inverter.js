@@ -232,6 +232,44 @@ export function changeInverterSpecification(catalogId, inverterId, inverters, mp
 }
 
 /**
+ * Remove one inverter and its MPPTs. Preserves all strings; clears only that
+ * inverter's MPPT assignments (strings become Unassigned).
+ *
+ * Independent of selectInverterFromCatalog / changeInverterSpecification.
+ *
+ * @param {string} inverterId
+ * @param {object[]} inverters
+ * @param {object[]} mppts
+ * @param {object[]} strings
+ */
+export function removeInverterFromProject(inverterId, inverters, mppts, strings) {
+  const existing = (inverters ?? []).find((i) => i.id === inverterId);
+  if (!existing) {
+    return { ok: false, reason: "Inverter could not be found." };
+  }
+
+  const ownedMpptIds = new Set(
+    (mppts ?? []).filter((m) => m.inverterId === inverterId).map((m) => m.id),
+  );
+  const assignedStringCount = (strings ?? []).filter(
+    (s) => s.mpptId && ownedMpptIds.has(s.mpptId),
+  ).length;
+
+  const clearedStrings = clearStringMpptAssignmentsForInverter(strings, mppts, inverterId);
+  const nextMppts = removeMpptsForInverters(mppts, [inverterId]);
+  const nextInverters = (inverters ?? []).filter((i) => i.id !== inverterId);
+
+  return {
+    ok: true,
+    inverters: nextInverters,
+    mppts:     nextMppts,
+    strings:   clearedStrings,
+    removedInverterId: inverterId,
+    assignedStringCount,
+  };
+}
+
+/**
  * Prepare MPPTs after placement refresh: clear stale string references.
  *
  * @param {object[]} mppts

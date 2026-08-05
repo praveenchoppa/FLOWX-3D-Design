@@ -1890,13 +1890,18 @@ export default function DesignStudio() {
   // Application state bundle consumed by isComplete predicates.
   const appState = { location, roofSections, roofDetected };
 
-  const stepConfig  = STEP_CONFIG[currentStep - 1]; // current step's config entry
+  const TOTAL_STEPS = STEP_CONFIG.length;
+  const isLastStep = currentStep >= TOTAL_STEPS;
+  // Defensive: never resolve an undefined panel if currentStep is out of range.
+  const stepConfig = STEP_CONFIG[currentStep - 1] ?? STEP_CONFIG[TOTAL_STEPS - 1];
   const canGoBack   = currentStep > 1;
-  const canGoNext   = stepConfig.isComplete(appState);
+  const canGoNext   = !isLastStep && stepConfig.isComplete(appState);
 
   const handleNext = () => {
+    if (currentStep >= TOTAL_STEPS) return;
     if (!canGoNext) return;
-    const nextStep = currentStep + 1;
+    const nextStep = Math.min(currentStep + 1, TOTAL_STEPS);
+    if (nextStep === currentStep) return;
     setCurrentStep(nextStep);
     setMaxUnlockedStep((m) => Math.max(m, nextStep));
   };

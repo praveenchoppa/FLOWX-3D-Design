@@ -88,6 +88,13 @@ export default function PropertiesPanel() {
     setAssignmentMessage(null);
   }, [selectedString?.id, selectedString?.mpptId]);
 
+  useEffect(() => {
+    if (!pendingMpptId) return;
+    if (assignableMppts.some((mppt) => mppt.id === pendingMpptId)) return;
+    setPendingMpptId(selectedString?.mpptId ?? "");
+    setAssignmentMessage(null);
+  }, [assignableMppts, pendingMpptId, selectedString?.mpptId]);
+
   const mpptAssignedStrings = useMemo(
     () => (selectedMppt ? stringsForMppt(strings, selectedMppt) : []),
     [strings, selectedMppt],
