@@ -97,6 +97,7 @@ import {
   EMPTY_PANEL_OVERRIDES,
 } from "../../features/panels/panelEditorUtils";
 import { applyElectricalArrayRotations } from "../../features/ElectricalDesign/models/arrayRotation.js";
+import { placementInitFingerprint } from "../../features/ElectricalDesign/models/array.js";
 import ArrayToolsToolbar from "../../features/ElectricalDesign/components/Canvas/ArrayToolsToolbar.jsx";
 import {
   validatePanelMove,
@@ -353,6 +354,8 @@ export default function DesignStudio() {
   const [electricalSelectedStringId, setElectricalSelectedStringId] = useState(null);
   const [electricalSelectedArrayId, setElectricalSelectedArrayId] = useState(null);
   const [electricalArrays, setElectricalArrays] = useState([]);
+  const [electricalStrings, setElectricalStrings] = useState([]);
+  const [electricalPlacementFingerprint, setElectricalPlacementFingerprint] = useState(null);
   const [electricalInverters, setElectricalInverters] = useState([]);
   const [electricalMppts, setElectricalMppts] = useState([]);
   const [electricalTerminationPoint, setElectricalTerminationPoint] = useState(null);
@@ -1044,6 +1047,23 @@ export default function DesignStudio() {
     ? (committedResults?.panelLayout ?? activePanelLayout)
     : activePanelLayout;
 
+  const electricalPlacementFingerprintCurrent = useMemo(
+    () => placementInitFingerprint({
+      panelLayout: baselinePanelLayout,
+      placementReady,
+      placementAreas,
+      usePlacementAreaPanelWorkflow,
+      projectPanelDefaults,
+    }),
+    [
+      baselinePanelLayout,
+      placementReady,
+      placementAreas,
+      usePlacementAreaPanelWorkflow,
+      projectPanelDefaults,
+    ],
+  );
+
   const handleRenameArray = useCallback((regionId, name) => {
     setArrayDisplayNames((prev) => {
       const next = { ...prev };
@@ -1070,7 +1090,13 @@ export default function DesignStudio() {
 
   const handleArraysChange = useCallback((arrays) => {
     setElectricalArrays(arrays ?? []);
-  }, []);
+    setElectricalPlacementFingerprint(electricalPlacementFingerprintCurrent);
+  }, [electricalPlacementFingerprintCurrent]);
+
+  const handleStringsChange = useCallback((strings) => {
+    setElectricalStrings(strings ?? []);
+    setElectricalPlacementFingerprint(electricalPlacementFingerprintCurrent);
+  }, [electricalPlacementFingerprintCurrent]);
 
   const handleInvertersChange = useCallback(({ inverters, mppts }) => {
     setElectricalInverters(inverters ?? []);
@@ -2043,10 +2069,13 @@ export default function DesignStudio() {
     panelLayout: activePanelLayout,
     baselinePanelLayout,
     persistedArrays: electricalArrays,
+    persistedStrings: electricalStrings,
+    persistedPlacementFingerprint: electricalPlacementFingerprint,
     persistedInverters: electricalInverters,
     persistedMppts: electricalMppts,
     persistedTerminationPoint: electricalTerminationPoint,
     onArraysChange: handleArraysChange,
+    onStringsChange: handleStringsChange,
     onInvertersChange: handleInvertersChange,
     onTerminationPointChange: handleTerminationPointChange,
     onRegisterArrayToolHandlers: handleRegisterArrayToolHandlers,

@@ -18,10 +18,13 @@ export default function ElectricalDesign({
   selectedPanel = null,
   roofSections = [],
   persistedArrays = [],
+  persistedStrings = [],
+  persistedPlacementFingerprint = null,
   persistedInverters = [],
   persistedMppts = [],
   persistedTerminationPoint = null,
   onArraysChange = () => {},
+  onStringsChange = () => {},
   onInvertersChange = () => {},
   onTerminationPointChange = () => {},
   onElectricalSelectionChange = () => {},
@@ -63,10 +66,13 @@ export default function ElectricalDesign({
       roofSections={roofSections}
       designCentre={designCentre}
       persistedArrays={persistedArrays}
+      persistedStrings={persistedStrings}
+      persistedPlacementFingerprint={persistedPlacementFingerprint}
       persistedInverters={persistedInverters}
       persistedMppts={persistedMppts}
       persistedTerminationPoint={persistedTerminationPoint}
       onArraysChange={onArraysChange}
+      onStringsChange={onStringsChange}
       onInvertersChange={onInvertersChange}
       onTerminationPointChange={onTerminationPointChange}
       onRegisterArrayToolHandlers={handleRegisterArrayTools}

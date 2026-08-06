@@ -134,6 +134,37 @@ export function syncMpptsAfterStringRemoval(strings, mppts) {
 }
 
 /**
+ * Rebuild mppt.stringIds entirely from string.mpptId (SSOT for MPPT string references).
+ *
+ * Clears all existing mppt.stringIds, then adds each string.id to its assigned MPPT.
+ * Skips strings with missing/invalid mpptId. Never duplicates a string id on one MPPT.
+ *
+ * @param {object[]} strings
+ * @param {object[]} mppts
+ */
+export function rebuildMpptStringIdsFromStrings(strings, mppts) {
+  const validMpptIds = new Set((mppts ?? []).map((m) => m.id));
+
+  const nextMppts = (mppts ?? []).map((m) => ({ ...m, stringIds: [] }));
+  const byId = new Map(nextMppts.map((m) => [m.id, m]));
+
+  for (const str of strings ?? []) {
+    const mpptId = str?.mpptId;
+    if (!mpptId || !validMpptIds.has(mpptId)) continue;
+
+    const mppt = byId.get(mpptId);
+    if (!mppt) continue;
+
+    const ids = mppt.stringIds ?? [];
+    if (!ids.includes(str.id)) {
+      mppt.stringIds = [...ids, str.id];
+    }
+  }
+
+  return nextMppts;
+}
+
+/**
  * Resolve MPPT for a string via string.mpptId.
  *
  * @param {object[]} mppts

@@ -13,13 +13,15 @@ import {
 } from "react";
 
 import {
-  buildArraysFromPlacement,
   mergeElectricalArrays,
-  mergePersistedArrayTransforms,
   placementInitFingerprint,
   renameElectricalArray,
   splitElectricalArray,
 } from "../models/array.js";
+import {
+  reconcilePersistedElectricalState,
+  resolveElectricalInitMode,
+} from "../models/electricalPersistence.js";
 import {
   arrayHasElectricalConfig,
   purgeArrayElectricalConfig,
@@ -40,7 +42,6 @@ import {
   changeInverterSpecification,
   removeInverterFromProject,
   selectInverterFromCatalog,
-  syncMpptsAfterPlacementRefresh,
 } from "../models/inverter.js";
 import { mpptsForInverter } from "../models/mppt.js";
 import {
@@ -158,12 +159,16 @@ function setActiveArray(state, arrayId) {
 function electricalReducer(state, action) {
   switch (action.type) {
     case ACTION.INIT_FROM_PLACEMENT: {
-      const { arrays, fingerprint, persistedInverters = [], persistedMppts = [] } = action.payload;
+      const {
+        arrays,
+        strings = [],
+        mppts: reconciledMppts = [],
+        fingerprint,
+        persistedInverters = [],
+      } = action.payload;
       const firstId = arrays[0]?.id ?? null;
       const preservedInverters = (state.inverters?.length ? state.inverters : persistedInverters) ?? [];
-      const preservedMppts = syncMpptsAfterPlacementRefresh(
-        state.mppts?.length ? state.mppts : persistedMppts,
-      );
+      const preservedMppts = reconciledMppts;
       const preservedInverterId = preservedInverters.some(
         (i) => i.id === state.selectedInverterId,
       )
@@ -173,7 +178,7 @@ function electricalReducer(state, action) {
       return {
         ...state,
         arrays,
-        strings:                    [],
+        strings,
         inverters:                  preservedInverters,
         mppts:                      preservedMppts,
         selectedArrayIds:           firstId ? [firstId] : [],
@@ -567,10 +572,13 @@ export function ElectricalStoreProvider({
   roofSections = [],
   designCentre = null,
   persistedArrays = [],
+  persistedStrings = [],
+  persistedPlacementFingerprint = null,
   persistedInverters = [],
   persistedMppts = [],
   persistedTerminationPoint = null,
   onArraysChange,
+  onStringsChange,
   onInvertersChange,
   onTerminationPointChange,
   onRegisterArrayToolHandlers,
@@ -604,25 +612,36 @@ export function ElectricalStoreProvider({
     if (!active) return;
     if (state.initFingerprint === fingerprint) return;
 
-    const arrays = mergePersistedArrayTransforms(
-      buildArraysFromPlacement({
-        panelLayout: baselinePanelLayout ?? panelLayout,
-        placementReady,
-        placementAreas,
-        usePlacementAreaPanelWorkflow,
-        projectPanelDefaults,
-        selectedPanel,
-      }),
+    const initLayout = baselinePanelLayout ?? panelLayout;
+    const mode = resolveElectricalInitMode({
+      storedFingerprint:      persistedPlacementFingerprint,
+      currentFingerprint:     fingerprint,
       persistedArrays,
-    );
+      persistedStrings,
+    });
+
+    const reconciled = reconcilePersistedElectricalState({
+      panelLayout: initLayout,
+      placementReady,
+      placementAreas,
+      usePlacementAreaPanelWorkflow,
+      projectPanelDefaults,
+      selectedPanel,
+      persistedArrays,
+      persistedStrings,
+      persistedMppts,
+      persistedInverters,
+      mode,
+    });
 
     dispatch({
       type: ACTION.INIT_FROM_PLACEMENT,
       payload: {
-        arrays,
+        arrays:             reconciled.arrays,
+        strings:            reconciled.strings,
+        mppts:              reconciled.mppts,
         fingerprint,
-        persistedInverters,
-        persistedMppts,
+        persistedInverters: reconciled.inverters,
       },
     });
   }, [
@@ -637,6 +656,8 @@ export function ElectricalStoreProvider({
     projectPanelDefaults,
     selectedPanel,
     persistedArrays,
+    persistedStrings,
+    persistedPlacementFingerprint,
     persistedInverters,
     persistedMppts,
   ]);
@@ -1208,7 +1229,11 @@ export function ElectricalStoreProvider({
     }
     const justActivated = !electricalActiveRef.current;
     electricalActiveRef.current = true;
-    if (!justActivated || !persistedTerminationPoint) return;
+    if (!justActivated) return;
+    if (persistedTerminationPoint == null) {
+      dispatch({ type: ACTION.CLEAR_TERMINATION_POINT });
+      return;
+    }
     dispatch({
       type: ACTION.SET_TERMINATION_POINT,
       payload: { terminationPoint: persistedTerminationPoint },
@@ -1244,6 +1269,11 @@ export function ElectricalStoreProvider({
     if (!active || !onArraysChange) return;
     onArraysChange(state.arrays);
   }, [active, onArraysChange, state.arrays]);
+
+  useEffect(() => {
+    if (!active || !onStringsChange) return;
+    onStringsChange(state.strings);
+  }, [active, onStringsChange, state.strings]);
 
   useEffect(() => {
     if (!active || !onInvertersChange) return;
